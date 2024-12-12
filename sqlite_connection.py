@@ -1,5 +1,6 @@
 import sqlite3
 
+
 class SQLiteConnection:
     def __init__(self, sqlite_file_name):
         self.sqlite_file_name = sqlite_file_name
