@@ -10,4 +10,5 @@ dependencies = [
     "feedparser>=6.0.11",
     "ollama>=0.4.2",
     "pydantic>=2.10.3",
+    "python-telegram-bot>=21.9",
 ]

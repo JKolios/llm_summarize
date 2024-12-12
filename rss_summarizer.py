@@ -10,10 +10,18 @@ class RSSSummarizer:
         summary: str
 
     SQLITE_SCHEMA_STATEMENTS = [
-        "CREATE TABLE IF NOT EXISTS summaries(summary_timestamp, rss_feed, entry_guid, model, text_title, text_theme, text_summary)"
+        "CREATE TABLE IF NOT EXISTS summaries("
+        "summary_timestamp,"
+        "rss_feed TEXT,"
+        "entry_guid TEXT,"
+        "model TEXT,"
+        "text_title TEXT,"
+        "text_theme TEXT,"
+        "text_summary TEXT,"
+        "sent BOOLEAN DEFAULT FALSE)"
     ]
-    SQLITE_INSERT_STATEMENT = "INSERT INTO summaries VALUES(?, ?, ?, ?, ?, ?, ?)"
-    SQLITE_SELECT_STATEMENT = (
+    SQLITE_INSERT_STATEMENT = "INSERT INTO summaries VALUES(?, ?, ?, ?, ?, ?, ?, ?)"
+    SQLITE_SELECT_EXISTING_STATEMENT = (
         "SELECT COUNT(*) FROM summaries WHERE entry_guid == ? AND model == ?"
     )
 
@@ -34,7 +42,8 @@ class RSSSummarizer:
         for entry in feed_entries:
             entry_guid = getattr(entry, "id", entry.link)
             guid_matches = self.sqlite_connection.query(
-                self.SQLITE_SELECT_STATEMENT, (entry_guid, self.summarizer.model_name)
+                self.SQLITE_SELECT_EXISTING_STATEMENT,
+                (entry_guid, self.summarizer.model_name),
             )
             if guid_matches[0][0] != 0:
                 print(
@@ -58,6 +67,7 @@ class RSSSummarizer:
                 entry.title,
                 text_summary.theme,
                 text_summary.summary,
+                False,
             )
             self.sqlite_connection.execute_and_commit(
                 self.SQLITE_INSERT_STATEMENT, data

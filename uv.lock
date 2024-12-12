@@ -252,6 +252,18 @@ wheels = [
 ]
 
 [[package]]
+name = "python-telegram-bot"
+version = "21.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/45/a6/369aa090e2c2d34bcfbeadd7d8c75ca2f771424c1a985a98a0adb3712463/python_telegram_bot-21.9.tar.gz", hash = "sha256:82588faca44069492b2aea7f3a5d6212e68884f296b9ccd444658d89170f158d", size = 436648 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9f/4e/b94c6925e3d75a07c3bc8e3f96234c926f627e7ddd05bbf2878e93b3fc15/python_telegram_bot-21.9-py3-none-any.whl", hash = "sha256:6a5e71056fbd138c78dbdefa3c7834d77022622997c60003c9b442061ee91633", size = 662715 },
+]
+
+[[package]]
 name = "pythonproject"
 version = "0.1.0"
 source = { virtual = "." }
@@ -261,6 +273,7 @@ dependencies = [
     { name = "feedparser" },
     { name = "ollama" },
     { name = "pydantic" },
+    { name = "python-telegram-bot" },
 ]
 
 [package.metadata]
@@ -270,6 +283,7 @@ requires-dist = [
     { name = "feedparser", specifier = ">=6.0.11" },
     { name = "ollama", specifier = ">=0.4.2" },
     { name = "pydantic", specifier = ">=2.10.3" },
+    { name = "python-telegram-bot", specifier = ">=21.9" },
 ]
 
 [[package]]
