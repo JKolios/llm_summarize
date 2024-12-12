@@ -4,6 +4,14 @@ from ollama_llm_text_summarizer import OllamaLLMTextSummarizer
 from telegram_bot import send_message
 
 from time import sleep
+import os
+
+MODEL_NAMES = os.environ.get("MODEL_NAMES", "").split(",")
+RSS_FEED_URLS = os.environ.get("RSS_FEED_URLS", "").split(",")
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", None)
+CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", None)
+
+SQLITE_FILE_NAME = "summaries.db"
 
 SQLITE_SELECT_UNSENT_STATEMENT = "SELECT * FROM summaries WHERE sent == false"
 
@@ -17,19 +25,10 @@ def telegram_message_from_summary(summary):
 
 
 def main():
-    # model_names = ["llama3.2", "gemma2", "mistral", "codellama"]
-    model_names = ["gemma2"]
-    sqlite_file_name = "summaries.db"
-    rss_feed_urls = [
-        "https://computer.rip/rss.xml",
-        "https://www.filfre.net/feed/rss/",
-        "https://blog.plover.com/index.rss",
-        "https://medium.com/feed/@admiralcloudberg",
-    ]
-    sqlite_connection = SQLiteConnection(sqlite_file_name)
+    sqlite_connection = SQLiteConnection(SQLITE_FILE_NAME)
 
-    for model_name in model_names:
-        for feed_url in rss_feed_urls:
+    for model_name in MODEL_NAMES:
+        for feed_url in RSS_FEED_URLS:
             rss_summarizer = RSSSummarizer(
                 feed_url,
                 OllamaLLMTextSummarizer(model_name),
@@ -41,7 +40,7 @@ def main():
     print(unsent_summaries)
 
     for summary in unsent_summaries:
-        send_message(telegram_message_from_summary(summary))
+        send_message(telegram_message_from_summary(summary), BOT_TOKEN, CHAT_ID)
         result = sqlite_connection.execute_and_commit(
             SQLITE_UPDATE_SENT_STATEMENT, (summary[2], summary[3])
         )
