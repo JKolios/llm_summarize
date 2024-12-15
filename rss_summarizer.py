@@ -37,9 +37,11 @@ class RSSSummarizer:
         parsed_feed = feedparser.parse(self.rss_feed_url)
         return parsed_feed.entries
 
-    def process_rss_feed(self):
+    def process_rss_feed(self) -> int:
         feed_entries = self._rss_feed_entries()
         logging.info(f"Got {len(feed_entries)} feed entries")
+
+        count_new_entries = 0
 
         for entry in feed_entries:
             entry_guid = getattr(entry, "id", entry.link)
@@ -58,7 +60,9 @@ class RSSSummarizer:
                     entry.description, self.__class__.TextSummary
                 )
             except ValidationError as e:
-                logging.error(f"Got a Validation error, continuing to next guid and model pair")
+                logging.error(
+                    f"Got a Validation error, continuing to next guid and model pair"
+                )
                 continue
 
             data = (
@@ -74,3 +78,6 @@ class RSSSummarizer:
             self.sqlite_connection.execute_and_commit(
                 self.SQLITE_INSERT_STATEMENT, data
             )
+
+            count_new_entries += 1
+        return count_new_entries
