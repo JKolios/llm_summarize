@@ -1,5 +1,8 @@
 # RSS feed summary Telegram bot 
 
+
+![Screenshot 2024-12-15 at 20 55 50](https://github.com/user-attachments/assets/40d2561c-9bca-4547-a38f-d21e18ce57a6)
+
 Telegram bot that summarizes new content on select RSS feeds using LLMs and submits these summaries to a chat.
 
 ## Usage
