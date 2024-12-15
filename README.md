@@ -1,6 +1,6 @@
 # RSS feed summary Telegram bot 
 
-Telegram bot that summarizes new content on select RSS feeds using LLMs.
+Telegram bot that summarizes new content on select RSS feeds using LLMs and submits these summaries to a chat.
 
 ## Usage
 
