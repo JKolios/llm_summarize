@@ -1,10 +1,11 @@
 from sqlite_connection import SQLiteConnection
 from rss_summarizer import RSSSummarizer
-from ollama_llm_text_summarizer import OllamaLLMTextSummarizer
+from llm_text_summarizer import OllamaLLMTextSummarizer, OpenRouterLLMTextSummarizer
 from telegram_bot import send_message
 
 from time import sleep
 import os
+import logging
 
 MODEL_NAMES = os.environ.get("MODEL_NAMES", "").split(",")
 RSS_FEED_URLS = os.environ.get("RSS_FEED_URLS", "").split(",")
@@ -19,6 +20,13 @@ SQLITE_UPDATE_SENT_STATEMENT = (
     "UPDATE summaries SET sent = true  WHERE entry_guid == ? AND model == ?"
 )
 
+LLM_TEXT_SUMMARIZER_CLASS = OpenRouterLLMTextSummarizer
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
 
 def telegram_message_from_summary(summary):
     return f"Feed: {summary[1]}\n\nTitle: {summary[4]}\n\nSummary:{summary[6]}\n\nLink: {summary[2]}"
@@ -26,25 +34,31 @@ def telegram_message_from_summary(summary):
 
 def main():
     sqlite_connection = SQLiteConnection(SQLITE_FILE_NAME)
+    logging.info("Opened SQLite Connection")
 
     for model_name in MODEL_NAMES:
+        logging.info(f"Using model: {model_name}")
         for feed_url in RSS_FEED_URLS:
+            logging.info(f"Processing feed: {feed_url}")
             rss_summarizer = RSSSummarizer(
                 feed_url,
-                OllamaLLMTextSummarizer(model_name),
+                LLM_TEXT_SUMMARIZER_CLASS(model_name),
                 sqlite_connection,
             )
             rss_summarizer.process_rss_feed()
+            logging.info(f"Processed feed: {feed_url}")
 
     unsent_summaries = sqlite_connection.query(SQLITE_SELECT_UNSENT_STATEMENT, ())
-    print(unsent_summaries)
+    logging.info(f"Unsent summary count: {len(unsent_summaries)}")
 
     for summary in unsent_summaries:
+        logging.info(f"Sending summary of: {summary[2]}")
         send_message(telegram_message_from_summary(summary), BOT_TOKEN, CHAT_ID)
+        logging.info(f"Sent summary of: {summary[2]}")
         result = sqlite_connection.execute_and_commit(
             SQLITE_UPDATE_SENT_STATEMENT, (summary[2], summary[3])
         )
-        print(result)
+        logging.info(f"Recorded send of: {summary[2]}, sleeping")
         sleep(5)
 
 

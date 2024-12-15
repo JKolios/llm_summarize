@@ -1,4 +1,5 @@
 import datetime
+import logging
 
 import feedparser
 from pydantic import BaseModel, ValidationError
@@ -38,6 +39,7 @@ class RSSSummarizer:
 
     def process_rss_feed(self):
         feed_entries = self._rss_feed_entries()
+        logging.info(f"Got {len(feed_entries)} feed entries")
 
         for entry in feed_entries:
             entry_guid = getattr(entry, "id", entry.link)
@@ -46,7 +48,7 @@ class RSSSummarizer:
                 (entry_guid, self.summarizer.model_name),
             )
             if guid_matches[0][0] != 0:
-                print(
+                logging.info(
                     f"Found guid and model match, skipping pair {entry_guid} and {self.summarizer.model_name}"
                 )
                 continue
@@ -56,7 +58,7 @@ class RSSSummarizer:
                     entry.description, self.__class__.TextSummary
                 )
             except ValidationError as e:
-                print(e)
+                logging.error(f"Got a Validation error, continuing to next guid and model pair")
                 continue
 
             data = (
