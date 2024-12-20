@@ -130,7 +130,13 @@ def main_persistent() -> None:
     """Run the bot in persistent mode."""
     logger.info("Starting in persistent mode")
     # Create the Application and pass it your bot's token.
-    application = Application.builder().token(BOT_TOKEN).write_timeout(600).build()
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .read_timeout(600)
+        .write_timeout(600)
+        .build()
+    )
 
     job_queue = application.job_queue
     job_queue.run_repeating(cron_scan, interval=SCAN_INTERVAL, first=5)
