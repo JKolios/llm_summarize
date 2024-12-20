@@ -3,6 +3,7 @@ import logging
 
 import feedparser
 from pydantic import BaseModel, ValidationError
+from requests.exceptions import HTTPError
 
 import llm_text_summarizer
 
@@ -67,10 +68,17 @@ class RSSSummarizer:
                     entry.description, self.__class__.TextSummary
                 )
             except ValidationError as e:
-                logging.error(
-                    f"Got a Validation error, continuing to next guid and model pair"
+                logging.error(f"Got validation errors:{str(e)}")
+                text_summary = self.__class__.TextSummary(
+                    theme="",
+                    summary="Failed to create a text summary, please check the bot's logs",
                 )
-                continue
+            except HTTPError as e:
+                logging.error(f"Got an HTTP error: {e.response}")
+                text_summary = self.__class__.TextSummary(
+                    theme="",
+                    summary="Failed to create a text summary, please check the bot's logs",
+                )
 
             data = (
                 self.init_timestamp,

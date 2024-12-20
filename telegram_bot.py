@@ -150,7 +150,14 @@ async def main_oneshot() -> None:
 
     logger.info("Starting in oneshot mode")
     # Create the Application and pass it your bot's token.
-    application = Application.builder().token(BOT_TOKEN).read_timeout(60).write_timeout(60).rate_limiter(AIORateLimiter()).build()
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .read_timeout(60)
+        .write_timeout(60)
+        .rate_limiter(AIORateLimiter())
+        .build()
+    )
     application.job_queue.run_once(cron_scan, when=1)
     await application.job_queue.get_jobs_by_name("cron_scan")[0].run(application)
 
