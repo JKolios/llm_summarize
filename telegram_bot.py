@@ -3,17 +3,24 @@ import html
 import json
 import logging
 import os
-import traceback
 
 from telegram import Update
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, AIORateLimiter
 
-from llm_summarize import summarize_rss_feeds, new_summaries
+from rss_summarizer import RSSSummarizer
 from sqlite_connection import SQLiteConnection
+
+# RUN_MODE can be either PERSISTENT or ONESHOT
+RUN_MODE = os.environ.get("RUN_MODE", "PERSISTENT")
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", None)
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", None)
+
+DEBUG_MESSAGES = os.environ.get("DEBUG_MESSAGES", None) == "True"
+SCAN_INTERVAL = int(os.environ.get("SCAN_INTERVAL", "900"))
+MODEL_NAMES = os.environ.get("MODEL_NAMES", "").split(",")
+RSS_FEED_URLS = os.environ.get("RSS_FEED_URLS", "").split(",")
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -52,10 +59,11 @@ def telegram_message_from_summary(summary):
 
 
 async def send_new_summaries(context: ContextTypes.DEFAULT_TYPE):
-    unsent_summaries = new_summaries(sqlite_conn)
-    await context.bot.send_message(
-        chat_id=CHAT_ID, text=f"{len(unsent_summaries)} new summaries are available"
-    )
+    unsent_summaries = RSSSummarizer(sqlite_conn).new_summaries()
+    if len(unsent_summaries) > 0 or DEBUG_MESSAGES:
+        await context.bot.send_message(
+            chat_id=CHAT_ID, text=f"{len(unsent_summaries)} new summaries are available"
+        )
     for summary in unsent_summaries:
         logging.info(f"Sending summary of: {summary[2]}")
         await context.bot.send_message(
@@ -77,17 +85,20 @@ async def send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("Starting manually triggered RSS feed scan")
     await update.message.reply_text("Scanning RSS feeds...")
-    count_new_entries = summarize_rss_feeds(sqlite_conn)
+    count_new_entries = RSSSummarizer(sqlite_conn).summarize_rss_feeds(
+        MODEL_NAMES, RSS_FEED_URLS
+    )
     await update.message.reply_text(f"Got {count_new_entries} new entries")
     await send_new_summaries(context)
 
 
 async def cron_scan(context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("Starting scheduled RSS feed scan")
-    await context.bot.send_message(
-        chat_id=CHAT_ID, text="Starting scheduled RSS feed scan..."
-    )
-    summarize_rss_feeds(sqlite_conn)
+    if DEBUG_MESSAGES:
+        await context.bot.send_message(
+            chat_id=CHAT_ID, text="Starting scheduled RSS feed scan..."
+        )
+    RSSSummarizer(sqlite_conn).summarize_rss_feeds(MODEL_NAMES, RSS_FEED_URLS)
     await send_new_summaries(context)
 
 
@@ -102,7 +113,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.error("Exception while handling an update:", exc_info=context.error)
 
     # Build the message with some markup and additional information about what happened.
-    # You might need to add some logic to deal with messages longer than the 4096 character limit.
+    # You might need to add some logic to deal with messages longer than the 4096-character limit.
     update_str = update.to_dict() if isinstance(update, Update) else str(update)
     message = (
         "An exception was raised while handling an update\n"
@@ -115,14 +126,14 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
-def main() -> None:
-    """Run the bot."""
+def main_persistent() -> None:
+    """Run the bot in persistent mode."""
+    logger.info("Starting in persistent mode")
     # Create the Application and pass it your bot's token.
-    application = Application.builder().token(BOT_TOKEN).write_timeout(30).build()
+    application = Application.builder().token(BOT_TOKEN).write_timeout(600).build()
 
     job_queue = application.job_queue
-
-    job_minute = job_queue.run_repeating(cron_scan, interval=60 * 5, first=10)
+    job_queue.run_repeating(cron_scan, interval=SCAN_INTERVAL, first=5)
 
     application.add_handler(CommandHandler("check", check))
     application.add_handler(CommandHandler("scan", scan))
@@ -134,5 +145,18 @@ def main() -> None:
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
+async def main_oneshot() -> None:
+    """Run a single execution of "scan"."""
+
+    logger.info("Starting in oneshot mode")
+    # Create the Application and pass it your bot's token.
+    application = Application.builder().token(BOT_TOKEN).read_timeout(60).write_timeout(60).rate_limiter(AIORateLimiter()).build()
+    application.job_queue.run_once(cron_scan, when=1)
+    await application.job_queue.get_jobs_by_name("cron_scan")[0].run(application)
+
+
 if __name__ == "__main__":
-    main()
+    if RUN_MODE.lower() == "persistent":
+        main_persistent()
+    elif RUN_MODE.lower() == "oneshot":
+        asyncio.run(main_oneshot())

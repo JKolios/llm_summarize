@@ -3,14 +3,51 @@ import os
 from string import Template
 
 import ollama
+import requests
 from openai import OpenAI
 from pydantic import ValidationError
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "NONE")
 
+CLOUDFLARE_AI_API_BASE_URL = os.getenv("CLOUDFLARE_AI_API_BASE_URL", "NONE")
+CLOUDFLARE_AI_API_KEY = os.getenv("CLOUDFLARE_AI_API_KEY", "NONE")
+
 PROMPT_TEMPLATE = Template(
     ' "Please summarize this text in 5 sentences at maximum: $text_to_summarize"'
 )
+
+
+class CloudflareAILLMTextSummarizer:
+    def __init__(self, model_name):
+        self.model_name = model_name
+
+    @staticmethod
+    def _headers():
+        return {"Authorization": f"Bearer {CLOUDFLARE_AI_API_KEY}"}
+
+    @staticmethod
+    def _messages(text_to_summarize):
+        return [
+            {
+                "role": "user",
+                "content": PROMPT_TEMPLATE.substitute(
+                    text_to_summarize=text_to_summarize
+                ),
+            }
+        ]
+
+    def summarize(self, text, summary_schema_class):
+        model_input = {"messages": self._messages(text)}
+        response = requests.post(
+            f"{CLOUDFLARE_AI_API_BASE_URL}{self.model_name}",
+            headers=self._headers(),
+            json=model_input,
+        )
+        response_content = response.json()
+        summary = summary_schema_class(
+            theme="", summary=response_content["result"]["response"]
+        )
+        return summary
 
 
 class OpenRouterLLMTextSummarizer:
@@ -54,7 +91,7 @@ class OllamaLLMTextSummarizer:
 
         response = ollama.chat(
             self.model_name,
-            mmessages=[
+            messages=[
                 {
                     "role": "user",
                     "content": PROMPT_TEMPLATE.substitute(text_to_summarize=text),
