@@ -135,6 +135,7 @@ def main_persistent() -> None:
         .token(BOT_TOKEN)
         .read_timeout(600)
         .write_timeout(600)
+        .rate_limiter(AIORateLimiter())
         .build()
     )
 
