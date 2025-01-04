@@ -114,11 +114,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
     # Build the message with some markup and additional information about what happened.
     # You might need to add some logic to deal with messages longer than the 4096-character limit.
-    update_str = update.to_dict() if isinstance(update, Update) else str(update)
-    message = (
-        "An exception was raised while handling an update\n"
-        f"update = {html.escape(json.dumps(update_str, indent=2, ensure_ascii=False))}"
-    )
+    message = f"An exception was raised: {context.error}"
 
     # Finally, send the message
     await context.bot.send_message(
