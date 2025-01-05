@@ -44,7 +44,7 @@ db_conn.init_schema()
 
 
 def telegram_message_from_summary(summary):
-    return f"Feed: {summary[1]}\n\nTitle: {summary[4]}\n\nSummary:{summary[6]}\n\nLink: {summary[2]}"
+    return f"Feed: {summary[1]}\n\nTitle: {summary[4]}\n\nSummary:{summary[5]}\n\nLink: {summary[2]}"
 
 
 async def send_new_summaries(context: ContextTypes.DEFAULT_TYPE):

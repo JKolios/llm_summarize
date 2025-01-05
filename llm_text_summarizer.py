@@ -13,6 +13,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "NONE")
 
 CLOUDFLARE_AI_API_BASE_URL = os.getenv("CLOUDFLARE_AI_API_BASE_URL", "NONE")
 CLOUDFLARE_AI_API_KEY = os.getenv("CLOUDFLARE_AI_API_KEY", "NONE")
+CLOUDFLARE_AI_GATEWAY_API_KEY  = os.getenv("CLOUDFLARE_AI_GATEWAY_API_KEY", "NONE")
 
 PROMPT_TEMPLATE = Template(
     ' "Please summarize this text in 5 sentences at maximum: $text_to_summarize"'
@@ -60,7 +61,9 @@ class CloudflareAILLMTextSummarizer(LLMTextSummarizer):
 
     @staticmethod
     def _headers():
-        return {"Authorization": f"Bearer {CLOUDFLARE_AI_API_KEY}"}
+        return {
+            "cf-aig-authorization": f"Bearer {CLOUDFLARE_AI_GATEWAY_API_KEY}",
+            "Authorization": f"Bearer {CLOUDFLARE_AI_API_KEY}"}
 
     def summarize(self, text, summary_schema_class):
         model_input = {"messages": self._messages(text)}
