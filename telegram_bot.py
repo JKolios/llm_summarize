@@ -1,6 +1,4 @@
 import asyncio
-import html
-import json
 import logging
 import os
 
@@ -9,11 +7,16 @@ from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ContextTypes, AIORateLimiter
 
 from rss_summarizer import RSSSummarizer
-from sqlite_connection import SQLiteConnection
+from db_connection import SQLiteConnection, PGConnection
 
 # RUN_MODE can be either PERSISTENT or ONESHOT
 RUN_MODE = os.environ.get("RUN_MODE", "PERSISTENT")
 
+# DB_CLASS can be either PGConnection or SQLiteConnection
+DB_CLASS = os.environ.get("DB_CLASS", "PGConnection")
+DB_PG_CONNECTION_STRING = os.environ.get("DB_PG_CONNECTION_STRING", "dbname=test user=postgres")
+
+# Telegram-related settings
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", None)
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", None)
 
@@ -30,28 +33,14 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
-SQLITE_SCHEMA_STATEMENTS = [
-    "CREATE TABLE IF NOT EXISTS summaries("
-    "summary_timestamp,"
-    "rss_feed TEXT,"
-    "entry_guid TEXT,"
-    "model TEXT,"
-    "text_title TEXT,"
-    "text_theme TEXT,"
-    "text_summary TEXT,"
-    "sent BOOLEAN DEFAULT FALSE)"
-]
-SQLITE_INSERT_STATEMENT = "INSERT INTO summaries VALUES(?, ?, ?, ?, ?, ?, ?, ?)"
-SQLITE_SELECT_EXISTING_STATEMENT = (
-    "SELECT COUNT(*) FROM summaries WHERE entry_guid == ? AND model == ?"
-)
+if DB_CLASS == "PGConnection":
+    db_conn = PGConnection(DB_PG_CONNECTION_STRING)
+elif DB_CLASS == "SQLiteConnection":
+    db_conn = SQLiteConnection()
+else:
+    raise ValueError("DB_CLASS can be either PGConnection or SQLiteConnection")
 
-SQLITE_UPDATE_SENT_STATEMENT = (
-    "UPDATE summaries SET sent = true  WHERE entry_guid == ? AND model == ?"
-)
-
-sqlite_conn = SQLiteConnection("summaries.db")
-sqlite_conn.init_sqlite_schema(SQLITE_SCHEMA_STATEMENTS)
+db_conn.init_schema()
 
 
 def telegram_message_from_summary(summary):
@@ -59,7 +48,7 @@ def telegram_message_from_summary(summary):
 
 
 async def send_new_summaries(context: ContextTypes.DEFAULT_TYPE):
-    unsent_summaries = RSSSummarizer(sqlite_conn).new_summaries()
+    unsent_summaries = RSSSummarizer(db_conn).new_summaries()
     if len(unsent_summaries) > 0 or DEBUG_MESSAGES:
         await context.bot.send_message(
             chat_id=CHAT_ID, text=f"{len(unsent_summaries)} new summaries are available"
@@ -70,9 +59,7 @@ async def send_new_summaries(context: ContextTypes.DEFAULT_TYPE):
             chat_id=CHAT_ID, text=telegram_message_from_summary(summary)
         )
         logging.info(f"Sent summary of: {summary[2]}")
-        sqlite_conn.execute_and_commit(
-            SQLITE_UPDATE_SENT_STATEMENT, (summary[2], summary[3])
-        )
+        db_conn.update_sent_summaries((summary[2], summary[3]))
         logging.info(f"Recorded send of: {summary[2]}")
 
 
@@ -85,7 +72,7 @@ async def send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("Starting manually triggered RSS feed scan")
     await update.message.reply_text("Scanning RSS feeds...")
-    count_new_entries = RSSSummarizer(sqlite_conn).summarize_rss_feeds(
+    count_new_entries = RSSSummarizer(db_conn).summarize_rss_feeds(
         MODEL_NAMES, RSS_FEED_URLS
     )
     await update.message.reply_text(f"Got {count_new_entries} new entries")
@@ -98,7 +85,7 @@ async def cron_scan(context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(
             chat_id=CHAT_ID, text="Starting scheduled RSS feed scan..."
         )
-    RSSSummarizer(sqlite_conn).summarize_rss_feeds(MODEL_NAMES, RSS_FEED_URLS)
+    RSSSummarizer(db_conn).summarize_rss_feeds(MODEL_NAMES, RSS_FEED_URLS)
     await send_new_summaries(context)
 
 
