@@ -12,7 +12,12 @@ class DBConnection:
         model TEXT,
         text_title TEXT,
         text_summary TEXT,
-        sent BOOLEAN DEFAULT FALSE)
+        sent BOOLEAN DEFAULT FALSE);
+        
+        CREATE TABLE IF NOT EXISTS rss_feeds(
+        name TEXT,
+        url TEXT,
+        active BOOLEAN DEFAULT TRUE);
         """
 
     INSERT_STATEMENT = "INSERT INTO summaries VALUES(%s, %s, %s, %s, %s, %s, %s)"
@@ -62,26 +67,26 @@ class DBConnection:
 class SQLiteConnection(DBConnection):
     DEFAULT_SQLITE_FILE_NAME = "summaries.db"
 
-    SCHEMA_STATEMENT = """
-            CREATE TABLE IF NOT EXISTS summaries(
-            summary_timestamp,
-            rss_feed TEXT,
-            entry_guid TEXT,
-            model TEXT,
-            text_title TEXT,
-            text_summary TEXT,
-            sent BOOLEAN DEFAULT FALSE)"""
-
-    INSERT_STATEMENT = "INSERT INTO summaries VALUES(?, ?, ?, ?, ?, ?, ?)"
-    SELECT_EXISTING_STATEMENT = (
-        "SELECT COUNT(*) FROM summaries WHERE entry_guid == ? AND model == ?"
-    )
-
-    UPDATE_SENT_STATEMENT = (
-        "UPDATE summaries SET sent = true  WHERE entry_guid == ? AND model == ?"
-    )
-
-    SELECT_UNSENT_STATEMENT = "SELECT * FROM summaries WHERE sent == false"
+    # SCHEMA_STATEMENT = """
+    #         CREATE TABLE IF NOT EXISTS summaries(
+    #         summary_timestamp,
+    #         rss_feed TEXT,
+    #         entry_guid TEXT,
+    #         model TEXT,
+    #         text_title TEXT,
+    #         text_summary TEXT,
+    #         sent BOOLEAN DEFAULT FALSE)"""
+    #
+    # INSERT_STATEMENT = "INSERT INTO summaries VALUES(%s, %s, %s, %s, %s, %s, %s)"
+    # SELECT_EXISTING_STATEMENT = (
+    #     "SELECT COUNT(*) FROM summaries WHERE entry_guid == ? AND model == ?"
+    # )
+    #
+    # UPDATE_SENT_STATEMENT = (
+    #     "UPDATE summaries SET sent = true  WHERE entry_guid == ? AND model == ?"
+    # )
+    #
+    # SELECT_UNSENT_STATEMENT = "SELECT * FROM summaries WHERE sent == false"
 
     def __init__(self, sqlite_file_name=DEFAULT_SQLITE_FILE_NAME):
         self.sqlite_file_name = sqlite_file_name

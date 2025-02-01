@@ -8,13 +8,10 @@ from telegram.ext import Application, CommandHandler, ContextTypes, AIORateLimit
 
 from rss_summarizer import RSSSummarizer
 from db_connection import SQLiteConnection, PGConnection
+import llm_text_summarizer
 
 # RUN_MODE can be either PERSISTENT or ONESHOT
 RUN_MODE = os.environ.get("RUN_MODE", "PERSISTENT")
-
-# DB_CLASS can be either PGConnection or SQLiteConnection
-DB_CLASS = os.environ.get("DB_CLASS", "PGConnection")
-DB_PG_CONNECTION_STRING = os.environ.get("DB_PG_CONNECTION_STRING", "dbname=test user=postgres")
 
 # Telegram-related settings
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", None)
@@ -33,22 +30,39 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
-if DB_CLASS == "PGConnection":
-    db_conn = PGConnection(DB_PG_CONNECTION_STRING)
-elif DB_CLASS == "SQLiteConnection":
-    db_conn = SQLiteConnection()
-else:
-    raise ValueError("DB_CLASS can be either PGConnection or SQLiteConnection")
 
-db_conn.init_schema()
+def init_db_connection():
+    DB_CLASS = os.environ.get("DB_CLASS", "PGConnection")
 
+    if DB_CLASS == "PGConnection":
+        pg_connection_string = os.environ.get("DB_PG_CONNECTION_STRING", "dbname=test user=postgres")
+        return PGConnection(pg_connection_string)
+    elif DB_CLASS == "SQLiteConnection":
+        return SQLiteConnection()
+    else:
+        raise ValueError("DB_CLASS can be either PGConnection or SQLiteConnection")
+
+db_conn = init_db_connection()
+
+def init_text_summarizer():
+    text_summarizer_class = os.environ.get("LLM_TEXT_SUMMARIZER_CLASS", "CloudflareAILLMTextSummarizer")
+    if text_summarizer_class == "CloudflareAILLMTextSummarizer":
+        return llm_text_summarizer.CloudflareAILLMTextSummarizer
+    elif text_summarizer_class == "OpenRouterLLMTextSummarizer":
+        return llm_text_summarizer.OpenRouterLLMTextSummarizer
+    elif text_summarizer_class == "OllamaLLMTextSummarizer":
+        return llm_text_summarizer.OllamaLLMTextSummarizer
+    else:
+        raise ValueError("DB_CLASS can be either PGConnection or SQLiteConnection")
+
+text_summarizer = init_text_summarizer()
 
 def telegram_message_from_summary(summary):
     return f"Feed: {summary[1]}\n\nTitle: {summary[4]}\n\nSummary:{summary[5]}\n\nLink: {summary[2]}"
 
 
 async def send_new_summaries(context: ContextTypes.DEFAULT_TYPE):
-    unsent_summaries = RSSSummarizer(db_conn).new_summaries()
+    unsent_summaries = RSSSummarizer(db_conn, text_summarizer).new_summaries()
     if len(unsent_summaries) > 0 or DEBUG_MESSAGES:
         await context.bot.send_message(
             chat_id=CHAT_ID, text=f"{len(unsent_summaries)} new summaries are available"
@@ -72,7 +86,7 @@ async def send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("Starting manually triggered RSS feed scan")
     await update.message.reply_text("Scanning RSS feeds...")
-    count_new_entries = RSSSummarizer(db_conn).summarize_rss_feeds(
+    count_new_entries = RSSSummarizer(db_conn, text_summarizer).summarize_rss_feeds(
         MODEL_NAMES, RSS_FEED_URLS
     )
     await update.message.reply_text(f"Got {count_new_entries} new entries")
@@ -85,12 +99,12 @@ async def cron_scan(context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(
             chat_id=CHAT_ID, text="Starting scheduled RSS feed scan..."
         )
-    RSSSummarizer(db_conn).summarize_rss_feeds(MODEL_NAMES, RSS_FEED_URLS)
+    RSSSummarizer(db_conn, text_summarizer).summarize_rss_feeds(MODEL_NAMES, RSS_FEED_URLS)
     await send_new_summaries(context)
 
 
-async def check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.info("Got a check command")
+async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.info("Got a ping command")
     await update.message.reply_text("The bot is up and running!")
 
 
@@ -125,7 +139,7 @@ def main_persistent() -> None:
     job_queue = application.job_queue
     job_queue.run_repeating(cron_scan, interval=SCAN_INTERVAL, first=5)
 
-    application.add_handler(CommandHandler("check", check))
+    application.add_handler(CommandHandler("ping", ping))
     application.add_handler(CommandHandler("scan", scan))
     application.add_handler(CommandHandler("send", send))
 

@@ -9,6 +9,7 @@ import requests
 from openai import OpenAI
 from pydantic import ValidationError
 
+OPENROUTER_API_BASE_URL = os.getenv('OPENROUTER_API_BASE_URL', "NONE")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "NONE")
 
 CLOUDFLARE_AI_API_BASE_URL = os.getenv("CLOUDFLARE_AI_API_BASE_URL", "NONE")
@@ -16,7 +17,7 @@ CLOUDFLARE_AI_API_KEY = os.getenv("CLOUDFLARE_AI_API_KEY", "NONE")
 CLOUDFLARE_AI_GATEWAY_API_KEY  = os.getenv("CLOUDFLARE_AI_GATEWAY_API_KEY", "NONE")
 
 PROMPT_TEMPLATE = Template(
-    ' "Please summarize this text in 5 sentences at maximum: $text_to_summarize"'
+    ' "Please return a brief summary of this text: $text_to_summarize"'
 )
 
 

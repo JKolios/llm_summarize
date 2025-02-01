@@ -5,10 +5,6 @@ import feedparser
 from pydantic import BaseModel, ValidationError
 from requests.exceptions import HTTPError
 
-import llm_text_summarizer
-
-LLM_TEXT_SUMMARIZER_CLASS = llm_text_summarizer.CloudflareAILLMTextSummarizer
-
 
 class RSSSummarizer:
     class TextSummary(BaseModel):
@@ -16,10 +12,12 @@ class RSSSummarizer:
         summary: str
 
 
-    def __init__(self, db_connection):
+    def __init__(self, db_connection, llm_summarizer):
         self.init_timestamp = datetime.datetime.now().isoformat()
         self.db_connection = db_connection
         self.db_connection.init_schema()
+
+        self.llm_summarizer = llm_summarizer
 
     @staticmethod
     def _rss_feed_entries(feed_url):
@@ -43,7 +41,7 @@ class RSSSummarizer:
                 continue
 
             try:
-                text_summary = LLM_TEXT_SUMMARIZER_CLASS(model_name).summarize(
+                text_summary = self.llm_summarizer(model_name).summarize(
                     entry.description, self.__class__.TextSummary
                 )
             except ValidationError as e:
