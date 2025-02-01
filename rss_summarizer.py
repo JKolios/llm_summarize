@@ -15,7 +15,6 @@ class RSSSummarizer:
     def __init__(self, db_connection, llm_summarizer):
         self.init_timestamp = datetime.datetime.now().isoformat()
         self.db_connection = db_connection
-        self.db_connection.init_schema()
 
         self.llm_summarizer = llm_summarizer
 
@@ -24,7 +23,7 @@ class RSSSummarizer:
         parsed_feed = feedparser.parse(feed_url)
         return parsed_feed.entries
 
-    def _process_rss_feed(self, model_name, feed_url) -> int:
+    def _process_rss_feed(self, model_name, feed_name, feed_url) -> int:
         feed_entries = self._rss_feed_entries(feed_url)
         logging.info(f"Got {len(feed_entries)} feed entries")
 
@@ -59,7 +58,7 @@ class RSSSummarizer:
 
             insert_data = (
                 self.init_timestamp,
-                feed_url,
+                feed_name,
                 entry_guid,
                 model_name,
                 entry.title,
@@ -71,17 +70,18 @@ class RSSSummarizer:
             count_new_entries += 1
         return count_new_entries
 
-    def summarize_rss_feeds(self, model_names, rss_feed_urls) -> int:
+    def summarize_rss_feeds(self, model_names) -> int:
         count_new_entries = 0
         for model_name in model_names:
             logging.info(f"Using model: {model_name}")
-            for feed_url in rss_feed_urls:
-                logging.info(f"Processing feed: {feed_url}")
+            rss_feeds = self.db_connection.select_active_rss_feeds()
+            for feed in rss_feeds:
+                logging.info(f"Processing feed: {feed}")
                 count_new_entries_from_feed = self._process_rss_feed(
-                    model_name, feed_url
+                    model_name, feed[0], feed[1]
                 )
                 logging.info(
-                    f"Processed feed: {feed_url}, got {count_new_entries_from_feed} new entries"
+                    f"Processed feed: {feed}, got {count_new_entries_from_feed} new entries"
                 )
                 count_new_entries += count_new_entries_from_feed
         return count_new_entries

@@ -20,7 +20,7 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", None)
 DEBUG_MESSAGES = os.environ.get("DEBUG_MESSAGES", None) == "True"
 SCAN_INTERVAL = int(os.environ.get("SCAN_INTERVAL", "900"))
 MODEL_NAMES = os.environ.get("MODEL_NAMES", "").split(",")
-RSS_FEED_URLS = os.environ.get("RSS_FEED_URLS", "").split(",")
+
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -43,6 +43,11 @@ def init_db_connection():
         raise ValueError("DB_CLASS can be either PGConnection or SQLiteConnection")
 
 db_conn = init_db_connection()
+db_conn.init_schema()
+
+
+RSS_FEED_URLS = os.environ.get("RSS_FEED_URLS", "").split(",")
+
 
 def init_text_summarizer():
     text_summarizer_class = os.environ.get("LLM_TEXT_SUMMARIZER_CLASS", "CloudflareAILLMTextSummarizer")
@@ -86,9 +91,7 @@ async def send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("Starting manually triggered RSS feed scan")
     await update.message.reply_text("Scanning RSS feeds...")
-    count_new_entries = RSSSummarizer(db_conn, text_summarizer).summarize_rss_feeds(
-        MODEL_NAMES, RSS_FEED_URLS
-    )
+    count_new_entries = RSSSummarizer(db_conn, text_summarizer).summarize_rss_feeds(MODEL_NAMES)
     await update.message.reply_text(f"Got {count_new_entries} new entries")
     await send_new_summaries(context)
 
@@ -99,8 +102,29 @@ async def cron_scan(context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(
             chat_id=CHAT_ID, text="Starting scheduled RSS feed scan..."
         )
-    RSSSummarizer(db_conn, text_summarizer).summarize_rss_feeds(MODEL_NAMES, RSS_FEED_URLS)
+    RSSSummarizer(db_conn, text_summarizer).summarize_rss_feeds(MODEL_NAMES)
     await send_new_summaries(context)
+
+async def add_feed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        feed_name = context.args[0]
+        feed_url = context.args[1]
+
+        logger.info(f"Adding a new feed named {feed_name} with url: {feed_url}")
+        db_conn.insert_rss_feed((feed_name, feed_url, True))
+        await update.message.reply_text(f'Added feed: {feed_name} with url: {feed_url}')
+    except (IndexError, ValueError):
+        await update.message.reply_text('Invalid parameters. Usage: add_feed <feed_name> <feed_url>')
+
+async def delete_feed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        feed_name = context.args[0]
+
+        logger.info(f"Deleting feed named {feed_name} if it exists")
+        db_conn.delete_rss_feed((feed_name,))
+        await update.message.reply_text(f'Deleted feed: {feed_name} if it existed')
+    except (IndexError, ValueError):
+        await update.message.reply_text('Invalid parameters. Usage: delete_feed <feed_name>')
 
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -142,6 +166,8 @@ def main_persistent() -> None:
     application.add_handler(CommandHandler("ping", ping))
     application.add_handler(CommandHandler("scan", scan))
     application.add_handler(CommandHandler("send", send))
+    application.add_handler(CommandHandler("add_feed", add_feed))
+    application.add_handler(CommandHandler("delete_feed", delete_feed))
 
     application.add_error_handler(error_handler)
 

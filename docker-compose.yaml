@@ -10,7 +10,8 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_DB=llm_summarize
   llm_summarize:
-      build:
-        dockerfile: Dockerfile
-      env_file:
-        - local_dev.env
+    restart: always
+    build:
+      dockerfile: Dockerfile
+    env_file:
+      - local_dev.env
