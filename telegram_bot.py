@@ -2,12 +2,18 @@ import asyncio
 import logging
 import os
 
+from psycopg.errors import UniqueViolation
+from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ContextTypes, AIORateLimiter
 
+import db
+from db import Base
 from rss_summarizer import RSSSummarizer
-from db_connection import SQLiteConnection, PGConnection
 import llm_text_summarizer
 
 # RUN_MODE can be either PERSISTENT or ONESHOT
@@ -31,55 +37,36 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-def init_db_connection():
-    DB_CLASS = os.environ.get("DB_CLASS", "PGConnection")
-
-    if DB_CLASS == "PGConnection":
-        pg_connection_string = os.environ.get("DB_PG_CONNECTION_STRING", "dbname=test user=postgres")
-        return PGConnection(pg_connection_string)
-    elif DB_CLASS == "SQLiteConnection":
-        return SQLiteConnection()
-    else:
-        raise ValueError("DB_CLASS can be either PGConnection or SQLiteConnection")
-
-db_conn = init_db_connection()
-db_conn.init_schema()
+def init_db_session() -> Session:
+    engine = create_engine(os.getenv("DB_CONNECTION_STRING", "NONE"))
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    return Session()
 
 
-RSS_FEED_URLS = os.environ.get("RSS_FEED_URLS", "").split(",")
+db_session = init_db_session()
 
-
-def init_text_summarizer():
-    text_summarizer_class = os.environ.get("LLM_TEXT_SUMMARIZER_CLASS", "CloudflareAILLMTextSummarizer")
-    if text_summarizer_class == "CloudflareAILLMTextSummarizer":
-        return llm_text_summarizer.CloudflareAILLMTextSummarizer
-    elif text_summarizer_class == "OpenRouterLLMTextSummarizer":
-        return llm_text_summarizer.OpenRouterLLMTextSummarizer
-    elif text_summarizer_class == "OllamaLLMTextSummarizer":
-        return llm_text_summarizer.OllamaLLMTextSummarizer
-    else:
-        raise ValueError("DB_CLASS can be either PGConnection or SQLiteConnection")
-
-text_summarizer = init_text_summarizer()
 
 def telegram_message_from_summary(summary):
-    return f"Feed: {summary[1]}\n\nTitle: {summary[4]}\n\nSummary:{summary[5]}\n\nLink: {summary[2]}"
+    return f"Feed: {summary.feed_name}\n\nSummary:{summary.content}\n\nLink: {summary.feed_entry_id}"
 
 
 async def send_new_summaries(context: ContextTypes.DEFAULT_TYPE):
-    unsent_summaries = RSSSummarizer(db_conn, text_summarizer).new_summaries()
+    unsent_summaries = RSSSummarizer(db_session).new_summaries()
     if len(unsent_summaries) > 0 or DEBUG_MESSAGES:
         await context.bot.send_message(
             chat_id=CHAT_ID, text=f"{len(unsent_summaries)} new summaries are available"
         )
     for summary in unsent_summaries:
-        logging.info(f"Sending summary of: {summary[2]}")
+        logger.info(f"Sending summary of: {summary.feed_entry_id}")
         await context.bot.send_message(
             chat_id=CHAT_ID, text=telegram_message_from_summary(summary)
         )
-        logging.info(f"Sent summary of: {summary[2]}")
-        db_conn.update_sent_summaries((summary[2], summary[3]))
-        logging.info(f"Recorded send of: {summary[2]}")
+        logger.info(f"Sent summary of: {summary.feed_entry_id}")
+        db.update_summary_sent(
+            db_session, summary.feed_name, summary.model_name, summary.feed_entry_id
+        )
+        logger.info(f"Recorded send of: {summary.feed_entry_id}")
 
 
 async def send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -91,7 +78,7 @@ async def send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("Starting manually triggered RSS feed scan")
     await update.message.reply_text("Scanning RSS feeds...")
-    count_new_entries = RSSSummarizer(db_conn, text_summarizer).summarize_rss_feeds(MODEL_NAMES)
+    count_new_entries = RSSSummarizer(db_session).summarize_rss_feeds()
     await update.message.reply_text(f"Got {count_new_entries} new entries")
     await send_new_summaries(context)
 
@@ -102,8 +89,9 @@ async def cron_scan(context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(
             chat_id=CHAT_ID, text="Starting scheduled RSS feed scan..."
         )
-    RSSSummarizer(db_conn, text_summarizer).summarize_rss_feeds(MODEL_NAMES)
+    RSSSummarizer(db_session).summarize_rss_feeds()
     await send_new_summaries(context)
+
 
 async def add_feed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
@@ -111,20 +99,66 @@ async def add_feed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         feed_url = context.args[1]
 
         logger.info(f"Adding a new feed named {feed_name} with url: {feed_url}")
-        db_conn.insert_rss_feed((feed_name, feed_url, True))
-        await update.message.reply_text(f'Added feed: {feed_name} with url: {feed_url}')
+        db.insert_rss_feed(db_session, name=feed_name, url=feed_url)
+        await update.message.reply_text(f"Added feed: {feed_name} with url: {feed_url}")
     except (IndexError, ValueError):
-        await update.message.reply_text('Invalid parameters. Usage: add_feed <feed_name> <feed_url>')
+        await update.message.reply_text(
+            "Invalid parameters. Usage: add_feed <feed_name> <feed_url>"
+        )
+    except UniqueViolation:
+        await update.message.reply_text("Feed already exists")
+
 
 async def delete_feed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         feed_name = context.args[0]
 
         logger.info(f"Deleting feed named {feed_name} if it exists")
-        db_conn.delete_rss_feed((feed_name,))
-        await update.message.reply_text(f'Deleted feed: {feed_name} if it existed')
+        db.delete_rss_feed(db_session, name=feed_name)
+        await update.message.reply_text(f"Deleted feed: {feed_name} if it existed")
     except (IndexError, ValueError):
-        await update.message.reply_text('Invalid parameters. Usage: delete_feed <feed_name>')
+        await update.message.reply_text(
+            "Invalid parameters. Usage: delete_feed <feed_name>"
+        )
+
+
+async def add_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        model_name = context.args[0]
+        model_provider_class = context.args[1]
+        model_provider_identifier = context.args[2]
+
+        logger.info(
+            f"Adding a new model named {model_name} with provider: {model_provider_class} and identifier: {model_provider_identifier}"
+        )
+        db.insert_model(
+            db_session,
+            name=model_name,
+            provider_class=model_provider_class,
+            provider_specific_id=model_provider_identifier,
+        )
+        await update.message.reply_text(
+            f"Added model: {model_name} with provider: {model_provider_class} and identifier: {model_provider_identifier}"
+        )
+    except (IndexError, ValueError):
+        await update.message.reply_text(
+            "Invalid parameters. Usage: add_model <model_name> <model_provider_class> <model_provider_identifier>"
+        )
+    except UniqueViolation:
+        await update.message.reply_text("Model already exists")
+
+
+async def delete_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        model_name = context.args[0]
+
+        logger.info(f"Deleting model named {model_name} if it exists")
+        db.delete_model(db_session, name=model_name)
+        await update.message.reply_text(f"Deleted model: {model_name} if it existed")
+    except (IndexError, ValueError):
+        await update.message.reply_text(
+            "Invalid parameters. Usage: delete_model <model_name>"
+        )
 
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -168,6 +202,8 @@ def main_persistent() -> None:
     application.add_handler(CommandHandler("send", send))
     application.add_handler(CommandHandler("add_feed", add_feed))
     application.add_handler(CommandHandler("delete_feed", delete_feed))
+    application.add_handler(CommandHandler("add_model", add_model))
+    application.add_handler(CommandHandler("delete_model", delete_model))
 
     application.add_error_handler(error_handler)
 
