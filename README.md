@@ -7,12 +7,28 @@ Telegram bot that summarizes new content on select RSS feeds using LLMs and subm
 
 ## Usage
 
-Run the included Dockerfile as a docker container while providing it these environment variables:
+Create a local_dev.env file with these variables:
 
 ```shell
-MODEL_NAMES={Comma separated list of LLM model names, using OpenRouter semantics}
+CLOUDFLARE_AI_API_BASE_URL={The base URL of a Cloudflare AI API, can be the URL of an AI Gateway}
+CLOUDFLARE_AI_API_KEY={The API key of a Cloudflare AI API}
+CLOUDFLARE_AI_GATEWAY_API_KEY={The API key of a Cloudflare AI Gateway}
 OPENROUTER_API_KEY={As the name says, an OpenRouter API key}
-RSS_FEED_URLS={Comma separated list of LLM model names, using OpenRouter semantics}
 TELEGRAM_BOT_TOKEN={A Telegram bot token, see https://core.telegram.org/bots/tutorial#obtain-your-bot-token}
 TELEGRAM_CHAT_ID={A Telegram chat ID where the bot will send the RSS summaries}
+DB_CONNECTION_STRING={A sqlalchemy DB connection string, defaults to "postgresql+psycopg://postgres:postgres@postgres/llm_summarize"}
 ```
+
+Run using `docker compose up`.
+
+### Bot commands
+
+* `/ping` ping the bot
+* `/scan` scan for new RSS entries
+* `/send` send all unsent RSS entries
+* `/add_feed` Add a new RSS feed, Usage: `/add_feed <feed_name> <feed_url>`
+* `/delete_feed` Delete an RSS feed, Usage: `/delete_feed <feed_name>`
+* `/add_model` Add a new LLM, Usage: `/add_model <model_name> <model_provider_class> <model_provider_identifier>`
+* `/delete_model` Delete an LLM, Usage: `/delete_model <model_name>`
+
+
