@@ -2,19 +2,14 @@ import asyncio
 import logging
 import os
 
+import db
 from psycopg.errors import UniqueViolation
-from sqlalchemy.orm import Session
+from rss_summarizer import RSSSummarizer
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
+from sqlalchemy.orm import Session, sessionmaker
 from telegram import Update
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes, AIORateLimiter
-
-import db
-from db import Base
-from rss_summarizer import RSSSummarizer
-import llm_text_summarizer
+from telegram.ext import AIORateLimiter, Application, CommandHandler, ContextTypes
 
 # RUN_MODE can be either PERSISTENT or ONESHOT
 RUN_MODE = os.environ.get("RUN_MODE", "PERSISTENT")
@@ -39,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 def init_db_session() -> Session:
     engine = create_engine(os.getenv("DB_CONNECTION_STRING", "NONE"))
-    Base.metadata.create_all(engine)
+    db.Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     return Session()
 

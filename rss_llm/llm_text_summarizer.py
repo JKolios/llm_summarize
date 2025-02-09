@@ -1,13 +1,12 @@
 import logging
 import os
-from string import Template
-from io import StringIO
 from html.parser import HTMLParser
+from io import StringIO
+from string import Template
 
 import ollama
 import requests
 from openai import OpenAI
-from pydantic import ValidationError
 
 OPENROUTER_API_BASE_URL = os.getenv("OPENROUTER_API_BASE_URL", "NONE")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "NONE")
@@ -17,8 +16,8 @@ CLOUDFLARE_AI_API_KEY = os.getenv("CLOUDFLARE_AI_API_KEY", "NONE")
 CLOUDFLARE_AI_GATEWAY_API_KEY = os.getenv("CLOUDFLARE_AI_GATEWAY_API_KEY", "NONE")
 
 SYSTEM_PROMPT = """
-"You are an assistant that specializes in summarising long texts. 
-Try to include the entirety of the text in the summary that you create. 
+"You are an assistant that specializes in summarising long texts.
+Try to include the entirety of the text in the summary that you create.
 """
 
 
@@ -28,6 +27,7 @@ USER_PROMPT_TEMPLATE = Template(
 
 
 logger = logging.getLogger(__name__)
+
 
 class MLStripper(HTMLParser):
     def __init__(self):
@@ -79,7 +79,7 @@ class CloudflareAILLMTextSummarizer(LLMTextSummarizer):
             "Authorization": f"Bearer {CLOUDFLARE_AI_API_KEY}",
         }
 
-    def summarize(self, text, summary_schema_class):
+    def summarize(self, text):
         model_input = {"messages": self._messages(text)}
         response = requests.post(
             f"{CLOUDFLARE_AI_API_BASE_URL}{self.model_name}",
@@ -88,10 +88,7 @@ class CloudflareAILLMTextSummarizer(LLMTextSummarizer):
         )
         response.raise_for_status()
         response_content = response.json()
-        summary = summary_schema_class(
-            theme="", summary=strip_tags(response_content["result"]["response"])
-        )
-        return summary
+        return response_content["result"]["response"]
 
 
 class OpenRouterLLMTextSummarizer(LLMTextSummarizer):
@@ -102,24 +99,13 @@ class OpenRouterLLMTextSummarizer(LLMTextSummarizer):
         )
         super().__init__(model_name)
 
-    def summarize(self, text, summary_schema_class):
+    def summarize(self, text):
 
         completion = self.client.beta.chat.completions.parse(
-            model=self.model_name,
-            messages=self._messages(text),
-            response_format=summary_schema_class,
+            model=self.model_name, messages=self._messages(text)
         )
 
-        try:
-            text_summary = summary_schema_class.model_validate(
-                completion.choices[0].message.parsed
-            )
-        except ValidationError as e:
-            logger.error(
-                f"Response content does not match the expected schema: {completion.choices[0].message.parsed}"
-            )
-            raise e
-        return text_summary
+        return completion.choices[0].message.parsed
 
 
 class OllamaLLMTextSummarizer(LLMTextSummarizer):
@@ -128,18 +114,10 @@ class OllamaLLMTextSummarizer(LLMTextSummarizer):
         self.client = ollama.Client(host=ollama_host)
         super().__init__(model_name)
 
-    def summarize(self, text, summary_schema_class):
+    def summarize(self, text):
         response = self.client.chat(
             self.model_name,
             messages=self._messages(text),
-            # format=summary_schema_class.model_json_schema(),
         )
 
-        try:
-            text_summary = summary_schema_class.model_validate(response.message.content)
-        except ValidationError as e:
-            logger.error(
-                f"Response content does not match the expected schema: {response.content}"
-            )
-            raise e
-        return text_summary
+        return response.message.content

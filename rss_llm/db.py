@@ -1,16 +1,9 @@
-from sqlalchemy import (
-    Column,
-    String,
-    Integer,
-    Boolean,
-    DateTime,
-    ForeignKey,
-    UniqueConstraint,
-    PrimaryKeyConstraint,
-)
+from sqlalchemy import Boolean, Column, ForeignKey, PrimaryKeyConstraint, String
+from sqlalchemy.dialects.postgresql import TEXT
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session
-from sqlalchemy.dialects.postgresql import TEXT
+from sqlalchemy.sql.expression import false, true
+from sqlalchemy.dialects.postgresql import JSONB
 
 Base = declarative_base()
 
@@ -21,6 +14,16 @@ class RssFeed(Base):
     name = Column(String(128), primary_key=True)
     url = Column(String(512), nullable=False)
     active = Column(Boolean(), default=True)
+
+
+class RSSEntry(Base):
+    __tablename__ = "rss_entries"
+
+    feed_name = Column(ForeignKey("rss_feeds.name"), nullable=False)
+    feed_entry_id = Column(TEXT, nullable=False)
+    raw_content = Column(JSONB, nullable=False)
+
+    __table_args__ = (PrimaryKeyConstraint("feed_name", "feed_entry_id"),)
 
 
 class Model(Base):
@@ -94,7 +97,7 @@ def update_summary_sent(
 
 
 def select_unsent_summaries(session: Session) -> list:
-    unsent_summaries = session.query(Summary).filter(Summary.sent == False).all()
+    unsent_summaries = session.query(Summary).filter(Summary.sent == false()).all()
 
     return unsent_summaries
 
@@ -118,7 +121,7 @@ def delete_rss_feed(session: Session, name: str):
 
 
 def select_active_rss_feeds(session: Session) -> list:
-    active_feeds = session.query(RssFeed).filter(RssFeed.active == True).all()
+    active_feeds = session.query(RssFeed).filter(RssFeed.active == true()).all()
 
     return active_feeds
 
@@ -148,6 +151,20 @@ def delete_model(session: Session, name: str):
 
 
 def select_active_models(session: Session) -> list:
-    active_models = session.query(Model).filter(Model.active == True).all()
+    active_models = session.query(Model).filter(Model.active == true()).all()
 
     return active_models
+
+
+def insert_rss_feed_entry(
+    session: Session, feed_name: str, feed_entry_id: str, content: str
+):
+    try:
+        new_rss_feed_entry = RSSEntry(
+            feed_name=feed_name, feed_entry_id=feed_entry_id, raw_content=content
+        )
+        session.add(new_rss_feed_entry)
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise Exception(f"Error inserting summary: {str(e)}")

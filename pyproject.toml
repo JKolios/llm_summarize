@@ -8,9 +8,9 @@ dependencies = [
     "beautifulsoup4>=4.12.3",
     "black>=24.10.0",
     "feedparser>=6.0.11",
+    "flake8>=7.1.1",
     "ollama>=0.4.2",
     "openai>=1.57.4",
-
     "psycopg[binary]>=3.2.3",
     "pydantic>=2.10.3",
     "python-telegram-bot[job-queue,rate-limiter]>=21.9",

@@ -5,6 +5,6 @@ ADD pyproject.toml /app
 ADD uv.lock /app
 RUN  uv sync --frozen --no-install-project --verbose
 
-ADD *.py /app
+ADD rss_llm/*.py /app
 
 CMD uv run python telegram_bot.py

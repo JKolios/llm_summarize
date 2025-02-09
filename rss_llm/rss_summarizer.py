@@ -1,20 +1,18 @@
 import datetime
 import logging
 
+import db
 import feedparser
-from pydantic import BaseModel, ValidationError
+import json
+import llm_text_summarizer
 from requests.exceptions import HTTPError
 from sqlalchemy.orm import Session
 
-import db
-import llm_text_summarizer
 
 logger = logging.getLogger(__name__)
 
+
 class RSSSummarizer:
-    class TextSummary(BaseModel):
-        theme: str
-        summary: str
 
     def __init__(self, db_session: Session):
         self.db_session = db_session
@@ -34,6 +32,8 @@ class RSSSummarizer:
 
         for entry in feed_entries:
             entry_guid = getattr(entry, "id", entry.link)
+            logger.info(f"Saving raw feed entry data for entry {entry_guid}")
+            db.insert_rss_feed_entry(self.db_session, feed.name, entry_guid, json.dumps(entry))
             logger.info(f"Processing entry {entry_guid} ...")
             existing = db.select_existing_summary(
                 self.db_session, feed_entry_id=entry_guid, model_name=model.name
@@ -50,28 +50,19 @@ class RSSSummarizer:
                     llm_text_summarizer, model.provider_class
                 )
                 summarizer_model = model_provider_class(model.provider_specific_id)
-                text_summary = summarizer_model.summarize(
-                    entry.description, self.__class__.TextSummary
-                )
-            except ValidationError as e:
-                logger.error(f"Got validation errors:{str(e)}")
-                text_summary = self.__class__.TextSummary(
-                    theme="",
-                    summary="Failed to create a text summary, please check the bot's logs",
-                )
+                text_summary = summarizer_model.summarize(entry.description)
             except HTTPError as e:
-                logger.error(f"Got an HTTP error: {e.response}")
-                text_summary = self.__class__.TextSummary(
-                    theme="",
-                    summary="Failed to create a text summary, please check the bot's logs",
+                logger.error(
+                    f"Got an HTTP error: {e.response} while processing {entry_guid}"
                 )
+                continue
 
             db.insert_summary(
                 self.db_session,
                 feed_name=feed.name,
                 model_name=model.name,
                 feed_entry_id=entry_guid,
-                content=text_summary.summary,
+                content=text_summary,
             )
             logger.info(f"Finished with entry {feed.name}-{model.name}")
             count_new_entries += 1
