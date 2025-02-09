@@ -76,9 +76,7 @@ async def reply_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             text=f"{len(unsent_summaries)} new entries are available"
         )
     else:
-        await update.message.reply_text(
-            text=f"No new entries are available"
-        )
+        await update.message.reply_text(text="No new entries are available")
         return
 
     for summary in unsent_summaries[:MAX_SUMMARIES_PER_SEND]:

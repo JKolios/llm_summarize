@@ -1,3 +1,6 @@
+import logging
+
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import Boolean, Column, ForeignKey, PrimaryKeyConstraint, String
 from sqlalchemy.dialects.postgresql import TEXT
 from sqlalchemy.ext.declarative import declarative_base
@@ -6,6 +9,8 @@ from sqlalchemy.sql.expression import false, true
 from sqlalchemy.dialects.postgresql import JSONB
 
 Base = declarative_base()
+
+logger = logging.getLogger(__name__)
 
 
 class RssFeed(Base):
@@ -165,6 +170,8 @@ def insert_rss_feed_entry(
         )
         session.add(new_rss_feed_entry)
         session.commit()
-    except Exception as e:
+    except IntegrityError:
         session.rollback()
-        raise Exception(f"Error inserting summary: {str(e)}")
+        logger.info(
+            f"RSS feed entry {feed_name}-{feed_entry_id} already exists in the DB"
+        )

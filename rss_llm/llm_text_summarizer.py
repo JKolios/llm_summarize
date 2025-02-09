@@ -8,7 +8,6 @@ import ollama
 import requests
 from openai import OpenAI
 
-OPENROUTER_API_BASE_URL = os.getenv("OPENROUTER_API_BASE_URL", "NONE")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "NONE")
 
 CLOUDFLARE_AI_API_BASE_URL = os.getenv("CLOUDFLARE_AI_API_BASE_URL", "NONE")
@@ -100,12 +99,12 @@ class OpenRouterLLMTextSummarizer(LLMTextSummarizer):
         super().__init__(model_name)
 
     def summarize(self, text):
-
-        completion = self.client.beta.chat.completions.parse(
+        # logger.info(f"{OPENROUTER_API_KEY}")
+        completion = self.client.chat.completions.create(
             model=self.model_name, messages=self._messages(text)
         )
 
-        return completion.choices[0].message.parsed
+        return completion.choices[0].message.content
 
 
 class OllamaLLMTextSummarizer(LLMTextSummarizer):

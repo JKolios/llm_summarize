@@ -48,6 +48,8 @@ class RSSSummarizer:
                 self.db_session, feed.name, entry_guid, json.dumps(entry)
             )
 
+            count_new_entries += 1
+
             try:
                 model_provider_class = getattr(
                     llm_text_summarizer, model.provider_class
@@ -67,7 +69,7 @@ class RSSSummarizer:
                 feed_entry_id=entry_guid,
                 content=text_summary,
             )
-            logger.info(f"Finished with entry {feed.name}-{model.name}")
+            logger.info(f"Finished with entry {feed.name}-{entry_guid}-{model.name}")
             count_new_entries += 1
         return count_new_entries
 
