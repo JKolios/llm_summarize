@@ -18,10 +18,13 @@ RUN_MODE = os.environ.get("RUN_MODE", "PERSISTENT")
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", None)
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", None)
 
-DEBUG_MESSAGES = os.environ.get("DEBUG_MESSAGES", None) == "True"
+# Intervals and message send limits
 SCAN_INTERVAL = int(os.environ.get("SCAN_INTERVAL", "900"))
-MODEL_NAMES = os.environ.get("MODEL_NAMES", "").split(",")
+SEND_INTERVAL = int(os.environ.get("SEND_INTERVAL", "60"))
+MAX_SUMMARIES_PER_SEND = 10
 
+# Logging settings
+DEBUG_MESSAGES = os.environ.get("DEBUG_MESSAGES", None) == "True"
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -35,26 +38,70 @@ logger = logging.getLogger(__name__)
 def init_db_session() -> Session:
     engine = create_engine(os.getenv("DB_CONNECTION_STRING", "NONE"))
     db.Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    return Session()
+    session = sessionmaker(bind=engine)
+    return session()
 
 
 db_session = init_db_session()
+
+
+def init_telegram_bot_application(
+    bot_token: str, read_timeout=60, write_timeout=60
+) -> Application:
+    # Create the Application and pass it your bot's token.
+    bot_application = (
+        Application.builder()
+        .token(bot_token)
+        .read_timeout(read_timeout)
+        .write_timeout(write_timeout)
+        .rate_limiter(AIORateLimiter())
+        .build()
+    )
+    return bot_application
+
+
+application = init_telegram_bot_application(BOT_TOKEN)
 
 
 def telegram_message_from_summary(summary):
     return f"Feed: {summary.feed_name}\n\nSummary:{summary.content}\n\nLink: {summary.feed_entry_id}"
 
 
-async def send_new_summaries(context: ContextTypes.DEFAULT_TYPE):
+async def reply_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.info("Sending all new entries")
+    await update.message.reply_text("Sending all new entries...")
     unsent_summaries = RSSSummarizer(db_session).new_summaries()
     if len(unsent_summaries) > 0 or DEBUG_MESSAGES:
-        await context.bot.send_message(
+        await update.message.reply_text(
+            text=f"{len(unsent_summaries)} new entries are available"
+        )
+    else:
+        await update.message.reply_text(
+            text=f"No new entries are available"
+        )
+        return
+
+    for summary in unsent_summaries[:MAX_SUMMARIES_PER_SEND]:
+        logger.info(f"Sending summary of: {summary.feed_entry_id}")
+        await update.message.reply_text(text=telegram_message_from_summary(summary))
+        logger.info(f"Sent summary of: {summary.feed_entry_id}")
+        db.update_summary_sent(
+            db_session, summary.feed_name, summary.model_name, summary.feed_entry_id
+        )
+        logger.info(f"Recorded send of: {summary.feed_entry_id}")
+
+
+async def cron_send(context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.info("Sending all new entries")
+
+    unsent_summaries = RSSSummarizer(db_session).new_summaries()
+    if len(unsent_summaries) > 0 or DEBUG_MESSAGES:
+        await application.bot.send_message(
             chat_id=CHAT_ID, text=f"{len(unsent_summaries)} new summaries are available"
         )
-    for summary in unsent_summaries:
+    for summary in unsent_summaries[:MAX_SUMMARIES_PER_SEND]:
         logger.info(f"Sending summary of: {summary.feed_entry_id}")
-        await context.bot.send_message(
+        await application.bot.send_message(
             chat_id=CHAT_ID, text=telegram_message_from_summary(summary)
         )
         logger.info(f"Sent summary of: {summary.feed_entry_id}")
@@ -64,28 +111,22 @@ async def send_new_summaries(context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"Recorded send of: {summary.feed_entry_id}")
 
 
-async def send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.info("Sending all new entries")
-    await update.message.reply_text("Sending all new entries...")
-    await send_new_summaries(context)
-
-
-async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def reply_scan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("Starting manually triggered RSS feed scan")
     await update.message.reply_text("Scanning RSS feeds...")
+
     count_new_entries = RSSSummarizer(db_session).summarize_rss_feeds()
     await update.message.reply_text(f"Got {count_new_entries} new entries")
-    await send_new_summaries(context)
 
 
 async def cron_scan(context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("Starting scheduled RSS feed scan")
     if DEBUG_MESSAGES:
-        await context.bot.send_message(
+        await application.bot.send_message(
             chat_id=CHAT_ID, text="Starting scheduled RSS feed scan..."
         )
-    RSSSummarizer(db_session).summarize_rss_feeds()
-    await send_new_summaries(context)
+    count_new_entries = RSSSummarizer(db_session).summarize_rss_feeds()
+    logger.info(f"Got {count_new_entries} new entries from scheduled scan")
 
 
 async def add_feed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -179,22 +220,14 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 def main_persistent() -> None:
     """Run the bot in persistent mode."""
     logger.info("Starting in persistent mode")
-    # Create the Application and pass it your bot's token.
-    application = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .read_timeout(600)
-        .write_timeout(600)
-        .rate_limiter(AIORateLimiter())
-        .build()
-    )
 
     job_queue = application.job_queue
     job_queue.run_repeating(cron_scan, interval=SCAN_INTERVAL, first=5)
+    job_queue.run_repeating(cron_send, interval=SEND_INTERVAL, first=30)
 
     application.add_handler(CommandHandler("ping", ping))
-    application.add_handler(CommandHandler("scan", scan))
-    application.add_handler(CommandHandler("send", send))
+    application.add_handler(CommandHandler("scan", reply_scan))
+    application.add_handler(CommandHandler("send", reply_send))
     application.add_handler(CommandHandler("add_feed", add_feed))
     application.add_handler(CommandHandler("delete_feed", delete_feed))
     application.add_handler(CommandHandler("add_model", add_model))
@@ -210,15 +243,6 @@ async def main_oneshot() -> None:
     """Run a single execution of "scan"."""
 
     logger.info("Starting in oneshot mode")
-    # Create the Application and pass it your bot's token.
-    application = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .read_timeout(60)
-        .write_timeout(60)
-        .rate_limiter(AIORateLimiter())
-        .build()
-    )
     application.job_queue.run_once(cron_scan, when=1)
     await application.job_queue.get_jobs_by_name("cron_scan")[0].run(application)
 

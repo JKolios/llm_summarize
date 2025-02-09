@@ -32,8 +32,6 @@ class RSSSummarizer:
 
         for entry in feed_entries:
             entry_guid = getattr(entry, "id", entry.link)
-            logger.info(f"Saving raw feed entry data for entry {entry_guid}")
-            db.insert_rss_feed_entry(self.db_session, feed.name, entry_guid, json.dumps(entry))
             logger.info(f"Processing entry {entry_guid} ...")
             existing = db.select_existing_summary(
                 self.db_session, feed_entry_id=entry_guid, model_name=model.name
@@ -44,6 +42,11 @@ class RSSSummarizer:
                     f"Found guid and model match, skipping pair {entry_guid} and {model.name}"
                 )
                 continue
+
+            logger.info(f"Saving raw feed entry data for entry {entry_guid}")
+            db.insert_rss_feed_entry(
+                self.db_session, feed.name, entry_guid, json.dumps(entry)
+            )
 
             try:
                 model_provider_class = getattr(
