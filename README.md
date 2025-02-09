@@ -32,3 +32,8 @@ Run using `docker compose up`.
 * `/delete_model` Delete an LLM, Usage: `/delete_model <model_name>`
 
 
+### Possible TODOs
+
+* Customizing the LLM prompts through the bot UI
+* Returning the raw RSS entry for a specific summary
+* Nicer config menu, maybe based on https://docs.python-telegram-bot.org/en/latest/examples.passportbot.html
