@@ -33,20 +33,30 @@ class RSSSummarizer:
         for entry in feed_entries:
             entry_guid = getattr(entry, "id", entry.link)
             logger.info(f"Processing entry {entry_guid} ...")
-            existing = db.select_existing_summary(
+            existing_summary = db.select_existing_summary_from_model(
                 self.db_session, feed_entry_id=entry_guid, model_name=model.name
             )
 
-            if existing:
+            if existing_summary:
                 logger.info(
                     f"Found guid and model match, skipping pair {entry_guid} and {model.name}"
                 )
                 continue
 
-            logger.info(f"Saving raw feed entry data for entry {entry_guid}")
-            db.insert_rss_feed_entry(
-                self.db_session, feed.name, entry_guid, json.dumps(entry)
+            existing_raw_feed_conent = db.select_existing_raw_feed_content(
+                self.db_session, feed_entry_id=entry_guid, feed_name=feed.name
             )
+
+            if not existing_raw_feed_conent:
+                logger.info(f"Saving raw feed entry data for entry {entry_guid}")
+                db.insert_rss_feed_entry(
+                    self.db_session, feed.name, entry_guid, json.dumps(entry)
+                )
+
+            else:
+                logger.info(
+                    f"Raw feed entry for {feed.name}-{entry_guid} already exists"
+                )
 
             count_new_entries += 1
 

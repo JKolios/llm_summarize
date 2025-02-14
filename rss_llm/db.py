@@ -69,13 +69,26 @@ def insert_summary(
         raise Exception(f"Error inserting summary: {str(e)}")
 
 
-def select_existing_summary(
+def select_existing_summary_from_model                                                                                                                             (
     session: Session, feed_entry_id: str, model_name: str
 ) -> bool:
     summary = (
         session.query(Summary)
         .filter(
             Summary.model_name == model_name, Summary.feed_entry_id == feed_entry_id
+        )
+        .first()
+    )
+
+    return summary is not None
+
+def select_existing_raw_feed_content(
+    session: Session, feed_name: str, feed_entry_id: str,
+) -> bool:
+    summary = (
+        session.query(Summary)
+        .filter(
+            Summary.feed_name == feed_name, Summary.feed_entry_id == feed_entry_id
         )
         .first()
     )
