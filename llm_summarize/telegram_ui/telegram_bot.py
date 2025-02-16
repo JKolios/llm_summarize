@@ -43,7 +43,7 @@ def init_telegram_bot_application(
 
 
 def telegram_message_from_summary(summary):
-    return f"Feed: {summary.feed_name}\n\nSummary:{summary.content}\n\nLink: {summary.feed_entry_id}"
+    return f"Feed: {summary.feed_name}\n\nTitle: {summary.title}\n\nSummary:{summary.content}\n\nLink: {summary.feed_entry_id}"
 
 
 async def reply_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
