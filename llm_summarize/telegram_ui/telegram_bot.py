@@ -1,18 +1,16 @@
-import asyncio
+
 import logging
 import os
+import uuid
 
-import db
 from psycopg.errors import UniqueViolation
-from rss_summarizer import RSSSummarizer
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
+from rss_llm.rss_summarizer import RSSSummarizer
+from kokoro_tts.kokoro_tts import create_audio_file
+
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import AIORateLimiter, Application, CommandHandler, ContextTypes
 
-# RUN_MODE can be either PERSISTENT or ONESHOT
-RUN_MODE = os.environ.get("RUN_MODE", "PERSISTENT")
 
 # Telegram-related settings
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", None)
@@ -26,27 +24,10 @@ MAX_SUMMARIES_PER_SEND = 10
 # Logging settings
 DEBUG_MESSAGES = os.environ.get("DEBUG_MESSAGES", None) == "True"
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-# set higher logging level for httpx to avoid all GET and POST requests being logged
-logging.getLogger("httpx").setLevel(logging.WARNING)
-
 logger = logging.getLogger(__name__)
 
-
-def init_db_session() -> Session:
-    engine = create_engine(os.getenv("DB_CONNECTION_STRING", "NONE"))
-    db.Base.metadata.create_all(engine)
-    session = sessionmaker(bind=engine)
-    return session()
-
-
-db_session = init_db_session()
-
-
 def init_telegram_bot_application(
-    bot_token: str, read_timeout=60, write_timeout=60
+    bot_token: str, db_queries, read_timeout=60, write_timeout=60
 ) -> Application:
     # Create the Application and pass it your bot's token.
     bot_application = (
@@ -57,10 +38,8 @@ def init_telegram_bot_application(
         .rate_limiter(AIORateLimiter())
         .build()
     )
+    bot_application.bot_data['db_queries'] = db_queries
     return bot_application
-
-
-application = init_telegram_bot_application(BOT_TOKEN)
 
 
 def telegram_message_from_summary(summary):
@@ -70,7 +49,7 @@ def telegram_message_from_summary(summary):
 async def reply_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("Sending all new entries")
     await update.message.reply_text("Sending all new entries...")
-    unsent_summaries = RSSSummarizer(db_session).new_summaries()
+    unsent_summaries = RSSSummarizer(context.bot_data['db_queries']).new_summaries()
     if len(unsent_summaries) > 0 or DEBUG_MESSAGES:
         await update.message.reply_text(
             text=f"{len(unsent_summaries)} new entries are available"
@@ -82,9 +61,12 @@ async def reply_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     for summary in unsent_summaries[:MAX_SUMMARIES_PER_SEND]:
         logger.info(f"Sending summary of: {summary.feed_entry_id}")
         await update.message.reply_text(text=telegram_message_from_summary(summary))
+
+        await update.message.reply_audio(summary.audio_file_path, title="TTS")
+
         logger.info(f"Sent summary of: {summary.feed_entry_id}")
-        db.update_summary_sent(
-            db_session, summary.feed_name, summary.model_name, summary.feed_entry_id
+        context.bot_data['db_queries'].update_summary_sent(
+            summary.feed_name, summary.model_name, summary.feed_entry_id
         )
         logger.info(f"Recorded send of: {summary.feed_entry_id}")
 
@@ -92,20 +74,20 @@ async def reply_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def cron_send(context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("Sending all new entries")
 
-    unsent_summaries = RSSSummarizer(db_session).new_summaries()
+    unsent_summaries = RSSSummarizer(context.bot_data['db_queries']).new_summaries()
     if len(unsent_summaries) > 0 or DEBUG_MESSAGES:
-        await application.bot.send_message(
+        await context.bot.send_message(
             chat_id=CHAT_ID, text=f"{len(unsent_summaries)} new summaries are available"
         )
     for summary in unsent_summaries[:MAX_SUMMARIES_PER_SEND]:
         logger.info(f"Sending summary of: {summary.feed_entry_id}")
-        await application.bot.send_message(
+        await context.bot.send_message(
             chat_id=CHAT_ID, text=telegram_message_from_summary(summary)
         )
+        await context.bot.send_audio(chat_id=CHAT_ID, audio=summary.audio_file_path, title="TTS")
+
         logger.info(f"Sent summary of: {summary.feed_entry_id}")
-        db.update_summary_sent(
-            db_session, summary.feed_name, summary.model_name, summary.feed_entry_id
-        )
+        context.bot_data['db_queries'].update_summary_sent(summary.feed_name, summary.model_name, summary.feed_entry_id)
         logger.info(f"Recorded send of: {summary.feed_entry_id}")
 
 
@@ -113,17 +95,17 @@ async def reply_scan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     logger.info("Starting manually triggered RSS feed scan")
     await update.message.reply_text("Scanning RSS feeds...")
 
-    count_new_entries = RSSSummarizer(db_session).summarize_rss_feeds()
+    count_new_entries = RSSSummarizer(context.bot_data['db_queries']).summarize_rss_feeds()
     await update.message.reply_text(f"Got {count_new_entries} new entries")
 
 
 async def cron_scan(context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("Starting scheduled RSS feed scan")
     if DEBUG_MESSAGES:
-        await application.bot.send_message(
+        await context.bot.send_message(
             chat_id=CHAT_ID, text="Starting scheduled RSS feed scan..."
         )
-    count_new_entries = RSSSummarizer(db_session).summarize_rss_feeds()
+    count_new_entries = RSSSummarizer(context.bot_data['db_queries']).summarize_rss_feeds()
     logger.info(f"Got {count_new_entries} new entries from scheduled scan")
 
 
@@ -133,7 +115,7 @@ async def add_feed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         feed_url = context.args[1]
 
         logger.info(f"Adding a new feed named {feed_name} with url: {feed_url}")
-        db.insert_rss_feed(db_session, name=feed_name, url=feed_url)
+        context.bot_data['db_queries'].insert_rss_feed(name=feed_name, url=feed_url)
         await update.message.reply_text(f"Added feed: {feed_name} with url: {feed_url}")
     except (IndexError, ValueError):
         await update.message.reply_text(
@@ -148,7 +130,7 @@ async def delete_feed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         feed_name = context.args[0]
 
         logger.info(f"Deleting feed named {feed_name} if it exists")
-        db.delete_rss_feed(db_session, name=feed_name)
+        context.bot_data['db_queries'].delete_rss_feed(name=feed_name)
         await update.message.reply_text(f"Deleted feed: {feed_name} if it existed")
     except (IndexError, ValueError):
         await update.message.reply_text(
@@ -165,8 +147,7 @@ async def add_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.info(
             f"Adding a new model named {model_name} with provider: {model_provider_class} and identifier: {model_provider_identifier}"
         )
-        db.insert_model(
-            db_session,
+        context.bot_data['db_queries'].insert_model(
             name=model_name,
             provider_class=model_provider_class,
             provider_specific_id=model_provider_identifier,
@@ -187,11 +168,23 @@ async def delete_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         model_name = context.args[0]
 
         logger.info(f"Deleting model named {model_name} if it exists")
-        db.delete_model(db_session, name=model_name)
+        context.bot_data['db_queries'].delete_model(name=model_name)
         await update.message.reply_text(f"Deleted model: {model_name} if it existed")
     except (IndexError, ValueError):
         await update.message.reply_text(
             "Invalid parameters. Usage: delete_model <model_name>"
+        )
+
+async def send_tts_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        tts_text = " ".join(context.args)
+
+        logger.info(f"Replying with voiced text: {tts_text} ")
+        audio_file_path = create_audio_file(tts_text, uuid.uuid4().hex)
+        await update.message.reply_audio(audio_file_path, title="TTS")
+    except (IndexError, ValueError):
+        await update.message.reply_text(
+            "Invalid parameters. Usage: tts <text>"
         )
 
 
@@ -215,9 +208,11 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
-def main_persistent() -> None:
+def run_persistent(db_queries) -> None:
     """Run the bot in persistent mode."""
     logger.info("Starting in persistent mode")
+
+    application = init_telegram_bot_application(BOT_TOKEN, db_queries)
 
     job_queue = application.job_queue
     job_queue.run_repeating(cron_scan, interval=SCAN_INTERVAL, first=5)
@@ -230,6 +225,7 @@ def main_persistent() -> None:
     application.add_handler(CommandHandler("delete_feed", delete_feed))
     application.add_handler(CommandHandler("add_model", add_model))
     application.add_handler(CommandHandler("delete_model", delete_model))
+    application.add_handler(CommandHandler("tts", send_tts_audio))
 
     application.add_error_handler(error_handler)
 
@@ -237,16 +233,12 @@ def main_persistent() -> None:
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
-async def main_oneshot() -> None:
+async def run_oneshot(db_queries) -> None:
     """Run a single execution of "scan"."""
-
     logger.info("Starting in oneshot mode")
+    application = init_telegram_bot_application(BOT_TOKEN, db_queries)
     application.job_queue.run_once(cron_scan, when=1)
     await application.job_queue.get_jobs_by_name("cron_scan")[0].run(application)
 
 
-if __name__ == "__main__":
-    if RUN_MODE.lower() == "persistent":
-        main_persistent()
-    elif RUN_MODE.lower() == "oneshot":
-        asyncio.run(main_oneshot())
+

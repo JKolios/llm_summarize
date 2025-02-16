@@ -1,10 +1,10 @@
-FROM ghcr.io/astral-sh/uv:0.5.9-python3.12-alpine
+FROM ghcr.io/astral-sh/uv:0.6-python3.12-bookworm
 
 WORKDIR /app
 ADD pyproject.toml /app
 ADD uv.lock /app
 RUN  uv sync --frozen --no-install-project --verbose
 
-ADD rss_llm/*.py /app
+ADD llm_summarize /app
 
-CMD uv run python telegram_bot.py
+CMD uv run python llm_summarize.py

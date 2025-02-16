@@ -8,7 +8,8 @@ import ollama
 import requests
 from openai import OpenAI
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "NONE")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "NONE")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "NONE")
 
 CLOUDFLARE_AI_API_BASE_URL = os.getenv("CLOUDFLARE_AI_API_BASE_URL", "NONE")
 CLOUDFLARE_AI_API_KEY = os.getenv("CLOUDFLARE_AI_API_KEY", "NONE")
@@ -90,16 +91,15 @@ class CloudflareAILLMTextSummarizer(LLMTextSummarizer):
         return response_content["result"]["response"]
 
 
-class OpenRouterLLMTextSummarizer(LLMTextSummarizer):
+class OpenAILLMTextSummarizer(LLMTextSummarizer):
     def __init__(self, model_name):
         self.client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=OPENROUTER_API_KEY,
+            base_url=OPENAI_BASE_URL,
+            api_key=OPENAI_API_KEY,
         )
         super().__init__(model_name)
 
     def summarize(self, text):
-        # logger.info(f"{OPENROUTER_API_KEY}")
         completion = self.client.chat.completions.create(
             model=self.model_name, messages=self._messages(text)
         )
