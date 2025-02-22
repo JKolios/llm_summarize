@@ -67,7 +67,8 @@ class RSSSummarizer:
                     llm_text_summarizer, model.provider_class
                 )
                 summarizer_model = model_provider_class(model.provider_specific_id)
-                text_summary = summarizer_model.summarize(entry.description)
+                entry_content = "".join([content_part.value for content_part in entry.content])
+                text_summary = summarizer_model.summarize(entry_content)
             except HTTPError as e:
                 logger.error(
                     f"Got an HTTP error: {e.response} while processing {entry_guid}"

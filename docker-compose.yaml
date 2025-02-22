@@ -10,7 +10,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_DB=llm_summarize
   summarizer:
-    restart: always
+    restart: on-failure
     build:
       dockerfile: Dockerfile
     env_file:
