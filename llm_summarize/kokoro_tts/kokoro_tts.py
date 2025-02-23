@@ -1,13 +1,16 @@
-from kokoro import KPipeline
-import soundfile
 
-pipeline = KPipeline(lang_code='a') # <= make sure lang_code matches voice
+import openai
 
-def create_audio_file(text: str, title: str):
-    generator = pipeline(text, voice='af_heart', speed=1)
+client = openai.AsyncOpenAI(
+    base_url="http://kokoro-tts:8880/v1", api_key="not-needed"
+)
+
+async def create_audio_file_docker(text: str, title: str):
     fname = f'{title}.mp3'
-    with soundfile.SoundFile(f'{title}.mp3', format="mp3", mode='x', samplerate=24000, bitrate_mode='CONSTANT', compression_level=0, channels=1) as sound_file:
-        for i, (_, _, audio) in enumerate(generator):
-            sound_file.write(audio)
+    response = await client.audio.speech.create(
+        model="kokoro",
+        voice="af_bella", #single or multiple voicepack combo
+        input=text
+      )
+    response.write_to_file(fname)
     return fname
-

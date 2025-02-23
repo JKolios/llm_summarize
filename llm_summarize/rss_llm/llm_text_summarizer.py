@@ -5,8 +5,8 @@ from io import StringIO
 from string import Template
 
 import ollama
-import requests
-from openai import OpenAI
+import aiohttp
+from openai import AsyncOpenAI
 
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "NONE")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "NONE")
@@ -79,42 +79,39 @@ class CloudflareAILLMTextSummarizer(LLMTextSummarizer):
             "Authorization": f"Bearer {CLOUDFLARE_AI_API_KEY}",
         }
 
-    def summarize(self, text):
-        model_input = {"messages": self._messages(text)}
-        response = requests.post(
-            f"{CLOUDFLARE_AI_API_BASE_URL}{self.model_name}",
-            headers=self._headers(),
-            json=model_input,
-        )
-        response.raise_for_status()
-        response_content = response.json()
-        return response_content["result"]["response"]
+    async def summarize(self, text):
+        async with aiohttp.ClientSession() as session:
+            model_input = {"messages": self._messages(text)}
+            async with session.post(f"{CLOUDFLARE_AI_API_BASE_URL}{self.model_name}", headers=self._headers(), json=model_input) as response:
+                response.raise_for_status()
+                response_content = await response.json()
+                return response_content["result"]["response"]
 
 
 class OpenAILLMTextSummarizer(LLMTextSummarizer):
     def __init__(self, model_name):
-        self.client = OpenAI(
+        self.client = AsyncOpenAI(
             base_url=OPENAI_BASE_URL,
             api_key=OPENAI_API_KEY,
         )
         super().__init__(model_name)
 
-    def summarize(self, text):
-        completion = self.client.chat.completions.create(
+    async def summarize(self, text):
+        completion = await self.client.chat.completions.create(
             model=self.model_name, messages=self._messages(text)
         )
 
-        return completion.choices[0].message.content
+        return  completion.choices[0].message.content
 
 
 class OllamaLLMTextSummarizer(LLMTextSummarizer):
 
     def __init__(self, model_name, ollama_host="host.docker.internal"):
-        self.client = ollama.Client(host=ollama_host)
+        self.client = ollama.AsyncClient(host=ollama_host)
         super().__init__(model_name)
 
-    def summarize(self, text):
-        response = self.client.chat(
+    async def summarize(self, text):
+        response = await self.client.chat(
             self.model_name,
             messages=self._messages(text),
         )

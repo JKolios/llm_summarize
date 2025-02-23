@@ -90,9 +90,9 @@ class Queries:
         self, feed_name: str, feed_entry_id: str,
     ) -> bool:
         summary = (
-            self.session.query(Summary)
+            self.session.query(RSSEntry)
             .filter(
-                Summary.feed_name == feed_name, Summary.feed_entry_id == feed_entry_id
+                RSSEntry.feed_name == feed_name, RSSEntry.feed_entry_id == feed_entry_id
             )
             .first()
         )

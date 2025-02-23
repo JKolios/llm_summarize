@@ -4,8 +4,9 @@ import os
 import uuid
 
 from psycopg.errors import UniqueViolation
+
+from kokoro_tts.kokoro_tts import create_audio_file_docker
 from rss_llm.rss_summarizer import RSSSummarizer
-from kokoro_tts.kokoro_tts import create_audio_file
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -95,8 +96,8 @@ async def reply_scan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     logger.info("Starting manually triggered RSS feed scan")
     await update.message.reply_text("Scanning RSS feeds...")
 
-    count_new_entries = RSSSummarizer(context.bot_data['db_queries']).summarize_rss_feeds()
-    await update.message.reply_text(f"Got {count_new_entries} new entries")
+    await RSSSummarizer(context.bot_data['db_queries']).summarize_rss_feeds()
+    await update.message.reply_text(f"Got new entries")
 
 
 async def cron_scan(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -105,8 +106,8 @@ async def cron_scan(context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(
             chat_id=CHAT_ID, text="Starting scheduled RSS feed scan..."
         )
-    count_new_entries = RSSSummarizer(context.bot_data['db_queries']).summarize_rss_feeds()
-    logger.info(f"Got {count_new_entries} new entries from scheduled scan")
+    await RSSSummarizer(context.bot_data['db_queries']).summarize_rss_feeds()
+
 
 
 async def add_feed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -180,7 +181,7 @@ async def send_tts_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         tts_text = " ".join(context.args)
 
         logger.info(f"Replying with voiced text: {tts_text} ")
-        audio_file_path = create_audio_file(tts_text, uuid.uuid4().hex)
+        audio_file_path = await create_audio_file_docker(tts_text, uuid.uuid4().hex)
         await update.message.reply_audio(audio_file_path, title="TTS")
     except (IndexError, ValueError):
         await update.message.reply_text(

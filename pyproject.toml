@@ -5,12 +5,11 @@ description = "A telegram bot that creates text and TTS summaries of RSS feed en
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "aiohttp>=3.11.12",
     "beautifulsoup4>=4.12.3",
     "black>=24.10.0",
-    "en-core-web-sm",
     "feedparser>=6.0.11",
     "flake8>=7.1.1",
-    "kokoro>=0.7.16",
     "ollama>=0.4.2",
     "openai>=1.57.4",
     "pip>=25.0.1",
@@ -18,9 +17,5 @@ dependencies = [
     "pydantic>=2.10.3",
     "python-telegram-bot[job-queue,rate-limiter]>=21.9",
     "requests>=2.32.3",
-    "soundfile>=0.13.1",
     "sqlalchemy>=2.0.37",
 ]
-
-[tool.uv.sources]
-en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
