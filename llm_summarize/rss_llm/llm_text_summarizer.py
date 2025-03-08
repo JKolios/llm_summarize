@@ -50,7 +50,7 @@ def strip_tags(html):
     return s.get_data()
 
 
-class LLMTextSummarizer:
+class LLMSummarizer:
     def __init__(self, model_name):
         self.model_name = model_name
 
@@ -70,7 +70,7 @@ class LLMTextSummarizer:
         ]
 
 
-class CloudflareAILLMTextSummarizer(LLMTextSummarizer):
+class CloudflareAISummarizer(LLMSummarizer):
 
     @staticmethod
     def _headers():
@@ -88,7 +88,7 @@ class CloudflareAILLMTextSummarizer(LLMTextSummarizer):
                 return response_content["result"]["response"]
 
 
-class OpenAILLMTextSummarizer(LLMTextSummarizer):
+class OpenAISummarizer(LLMSummarizer):
     def __init__(self, model_name):
         self.client = AsyncOpenAI(
             base_url=OPENAI_BASE_URL,
@@ -104,7 +104,7 @@ class OpenAILLMTextSummarizer(LLMTextSummarizer):
         return  completion.choices[0].message.content
 
 
-class OllamaLLMTextSummarizer(LLMTextSummarizer):
+class OllamaSummarizer(LLMSummarizer):
 
     def __init__(self, model_name, ollama_host="host.docker.internal"):
         self.client = ollama.AsyncClient(host=ollama_host)

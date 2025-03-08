@@ -8,9 +8,9 @@ from psycopg.errors import UniqueViolation
 from kokoro_tts.kokoro_tts import create_audio_file_docker
 from rss_llm.rss_summarizer import RSSSummarizer
 
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
-from telegram.ext import AIORateLimiter, Application, CommandHandler, ContextTypes
+from telegram.ext import AIORateLimiter, Application, CommandHandler, filters, MessageHandler, ContextTypes, ConversationHandler, CallbackContext
 
 
 # Telegram-related settings
@@ -26,6 +26,15 @@ MAX_SUMMARIES_PER_SEND = 10
 DEBUG_MESSAGES = os.environ.get("DEBUG_MESSAGES", None) == "True"
 
 logger = logging.getLogger(__name__)
+
+# Model provider classes
+MODEL_PROVIDER_CLASSES = ["CloudflareAISummarizer", "OpenAISummarizer", "OllamaSummarizer"]
+
+# New model conversation states
+MODEL_NAME, MODEL_PROVIDER_NAME = range(2)
+
+# New feed conversation states
+FEED_NAME, FEED_URL = range(2)
 
 def init_telegram_bot_application(
     bot_token: str, db_queries, read_timeout=60, write_timeout=60
@@ -109,7 +118,6 @@ async def cron_scan(context: ContextTypes.DEFAULT_TYPE) -> None:
     await RSSSummarizer(context.bot_data['db_queries']).summarize_rss_feeds()
 
 
-
 async def add_feed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         feed_name = context.args[0]
@@ -138,30 +146,6 @@ async def delete_feed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "Invalid parameters. Usage: delete_feed <feed_name>"
         )
 
-
-async def add_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        model_name = context.args[0]
-        model_provider_class = context.args[1]
-        model_provider_identifier = context.args[2]
-
-        logger.info(
-            f"Adding a new model named {model_name} with provider: {model_provider_class} and identifier: {model_provider_identifier}"
-        )
-        context.bot_data['db_queries'].insert_model(
-            name=model_name,
-            provider_class=model_provider_class,
-            provider_specific_id=model_provider_identifier,
-        )
-        await update.message.reply_text(
-            f"Added model: {model_name} with provider: {model_provider_class} and identifier: {model_provider_identifier}"
-        )
-    except (IndexError, ValueError):
-        await update.message.reply_text(
-            "Invalid parameters. Usage: add_model <model_name> <model_provider_class> <model_provider_identifier>"
-        )
-    except UniqueViolation:
-        await update.message.reply_text("Model already exists")
 
 
 async def delete_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -193,6 +177,106 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("Got a ping command")
     await update.message.reply_text("The bot is up and running!")
 
+async def add_model_convo(update: Update, context: CallbackContext) -> int:
+    """Start the conversation and ask user for input."""
+
+    await update.message.reply_text(
+        "Please select the model provider:",
+        reply_markup=ReplyKeyboardMarkup([MODEL_PROVIDER_CLASSES], one_time_keyboard=True)
+    )
+
+    return MODEL_PROVIDER_NAME
+
+
+async def handle_model_provider_choice(update: Update, context: CallbackContext) -> int:
+    user_choice = update.message.text
+
+    if user_choice in MODEL_PROVIDER_CLASSES:
+        # Store the user's choice in context.user_data
+        context.user_data['model_provider_class'] = user_choice
+
+        # Ask the user for the name of the model
+        await update.message.reply_text("Great! Now, please provide the name of the model:")
+
+        # Transition to the DONE_ADDING_MODEL state
+        return MODEL_NAME
+    else:
+        # Handle invalid input
+        await update.message.reply_text("Invalid choice. Please choose one of the providers in the list.")
+        return MODEL_PROVIDER_NAME
+
+
+# Handle the user's model name input
+async def handle_model_name(update: Update, context: CallbackContext) -> int:
+    model_name = update.message.text
+
+    # Retrieve the user's choice from context.user_data
+    provider_class = context.user_data.get('model_provider_class', None)
+
+    if model_name:
+        # Thank the user for their input
+        try:
+            context.bot_data['db_queries'].insert_model(
+                name=f'{model_name}-{provider_class}',
+                provider_class=provider_class,
+                provider_specific_id=model_name,
+            )
+        except UniqueViolation:
+            await update.message.reply_text("Model already exists")
+        await update.message.reply_text(
+            f"Added model: {model_name} with provider: {provider_class} and identifier: {model_name}"
+        )
+        # End the conversation
+        return ConversationHandler.END
+    else:
+        await update.message.reply_text(f"Please give a valid model name")
+        return MODEL_NAME
+
+async def add_feed_convo(update: Update, context: CallbackContext) -> int:
+    """Start the conversation and ask user for input."""
+
+    await update.message.reply_text(
+        "Please give a name for the RSS/Atom feed:"
+    )
+
+    return FEED_NAME
+
+
+async def handle_feed_name(update: Update, context: CallbackContext) -> int:
+    feed_name = update.message.text
+
+    # Store the user's choice in context.user_data
+    context.user_data['feed_name'] = feed_name
+
+    # Ask the user for the URL of the feed
+    await update.message.reply_text("Great! Now, please provide the URL of the feed:")
+
+    # Transition to the FEED_URL state
+    return FEED_URL
+
+
+async def handle_feed_url(update: Update, context: CallbackContext) -> int:
+    feed_url = update.message.text
+
+    # Retrieve the user's choice from context.user_data
+    feed_name = context.user_data.get('feed_name', None)
+
+    if feed_name and feed_url:
+        try:
+            context.bot_data['db_queries'].insert_rss_feed(name=feed_name, url=feed_url)
+        except UniqueViolation:
+            await update.message.reply_text("Feed already exists")
+            # End the conversation
+            return ConversationHandler.END
+        await update.message.reply_text(f"Added feed: {feed_name} with url: {feed_url}")
+        # End the conversation
+        return ConversationHandler.END
+
+
+# Cancel command to end a conversation
+async def cancel(update: Update, context: CallbackContext) -> int:
+    await update.message.reply_text("Conversation canceled.")
+    return ConversationHandler.END
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log the error and send a telegram message to notify the developer."""
@@ -219,12 +303,33 @@ def run_persistent(db_queries) -> None:
     job_queue.run_repeating(cron_scan, interval=SCAN_INTERVAL, first=5)
     job_queue.run_repeating(cron_send, interval=SEND_INTERVAL, first=30)
 
+
+    add_model_conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("add_model", add_model_convo)],
+        states={
+            MODEL_PROVIDER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_model_provider_choice)],
+            MODEL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_model_name)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    application.add_handler(add_model_conv_handler)
+
+    add_feed_conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("add_feed", add_feed_convo)],
+        states={
+            FEED_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_feed_name)],
+            FEED_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_feed_url)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    application.add_handler(add_feed_conv_handler)
+
     application.add_handler(CommandHandler("ping", ping))
     application.add_handler(CommandHandler("scan", reply_scan))
     application.add_handler(CommandHandler("send", reply_send))
-    application.add_handler(CommandHandler("add_feed", add_feed))
     application.add_handler(CommandHandler("delete_feed", delete_feed))
-    application.add_handler(CommandHandler("add_model", add_model))
     application.add_handler(CommandHandler("delete_model", delete_model))
     application.add_handler(CommandHandler("tts", send_tts_audio))
 
@@ -240,6 +345,3 @@ async def run_oneshot(db_queries) -> None:
     application = init_telegram_bot_application(BOT_TOKEN, db_queries)
     application.job_queue.run_once(cron_scan, when=1)
     await application.job_queue.get_jobs_by_name("cron_scan")[0].run(application)
-
-
-

@@ -14,6 +14,7 @@ from kokoro_tts.kokoro_tts import create_audio_file_docker
 
 logger = logging.getLogger(__name__)
 
+VIABLE_SUMMARY_LENGTH = 100
 
 class RSSSummarizer:
 
@@ -62,7 +63,7 @@ class RSSSummarizer:
             summarizer_model = model_provider_class(model.provider_specific_id)
             if "content" in entry:
                 entry_content = "".join([content_part.value for content_part in entry.content])
-            elif "summary" in entry:
+            elif "summary" in entry and len(entry.summary) > VIABLE_SUMMARY_LENGTH :
                 entry_content = entry.summary
             else:
                 logger.info(f" Could not find content to summarize in {entry_guid}")
