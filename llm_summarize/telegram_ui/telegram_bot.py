@@ -28,7 +28,7 @@ DEBUG_MESSAGES = os.environ.get("DEBUG_MESSAGES", None) == "True"
 logger = logging.getLogger(__name__)
 
 # Model provider classes
-MODEL_PROVIDER_CLASSES = ["CloudflareAISummarizer", "OpenAISummarizer", "OllamaSummarizer"]
+MODEL_PROVIDER_CLASSES = ["CloudflareAISummarizer", "OpenAISummarizer", "OllamaSummarizer", "OpenAISummarizerChunked"]
 
 # New model conversation states
 MODEL_NAME, MODEL_PROVIDER_NAME = range(2)
@@ -53,7 +53,7 @@ def init_telegram_bot_application(
 
 
 def telegram_message_from_summary(summary):
-    return f"Feed: {summary.feed_name}\n\nTitle: {summary.title}\n\nSummary:{summary.content}\n\nLink: {summary.feed_entry_id}"
+    return f"Feed: {summary.feed_name}\n\nTitle: {[[summary.title]]}\n\nSummary:{summary.content}\n\nLink: {summary.feed_entry_id}"
 
 
 async def reply_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -72,7 +72,7 @@ async def reply_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         logger.info(f"Sending summary of: {summary.feed_entry_id}")
         await update.message.reply_text(text=telegram_message_from_summary(summary))
 
-        await update.message.reply_audio(summary.audio_file_path, title="TTS")
+        await update.message.reply_audio(summary.audio_file_path, title=summary.title, performer="Kokoro TTS")
 
         logger.info(f"Sent summary of: {summary.feed_entry_id}")
         context.bot_data['db_queries'].update_summary_sent(
@@ -147,7 +147,6 @@ async def delete_feed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
 
 
-
 async def delete_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         model_name = context.args[0]
@@ -159,6 +158,7 @@ async def delete_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text(
             "Invalid parameters. Usage: delete_model <model_name>"
         )
+
 
 async def send_tts_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
@@ -182,7 +182,7 @@ async def add_model_convo(update: Update, context: CallbackContext) -> int:
 
     await update.message.reply_text(
         "Please select the model provider:",
-        reply_markup=ReplyKeyboardMarkup([MODEL_PROVIDER_CLASSES], one_time_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup([MODEL_PROVIDER_CLASSES], one_time_keyboard=True, resize_keyboard= True)
     )
 
     return MODEL_PROVIDER_NAME
@@ -203,7 +203,7 @@ async def handle_model_provider_choice(update: Update, context: CallbackContext)
     else:
         # Handle invalid input
         await update.message.reply_text("Invalid choice. Please choose one of the providers in the list.")
-        return MODEL_PROVIDER_NAME
+        return ConversationHandler.END
 
 
 # Handle the user's model name input

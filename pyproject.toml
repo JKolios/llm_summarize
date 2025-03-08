@@ -18,4 +18,6 @@ dependencies = [
     "python-telegram-bot[job-queue,rate-limiter]>=21.9",
     "requests>=2.32.3",
     "sqlalchemy>=2.0.37",
+    "tiktoken>=0.9.0",
+    "tqdm>=4.67.1",
 ]
